@@ -4,28 +4,37 @@ on:
   push:
     branches: [main]
   pull_request:
+    branches: [main]
 
-permissions:
-  contents: read
+# Deny all permissions by default, grant per-job as needed
+permissions: {}
 
+# A newer run of a pull request cancels the older one. Every other run gets a
+# group of its own and is never cancelled, so each main commit has a finished
+# run.
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   CARGO_TERM_COLOR: always
   # M0 only. Cargo.toml reads fallow-report-protocol from
-  # ../fallow-report-protocol/crates/report-protocol. Each job checks out this
-  # repository into `cargo-fallow/` and the fallow repository at this commit
-  # into `fallow-report-protocol/`, so the relative path resolves. Remove this
-  # when the crate is on crates.io.
+  # ../fallow-report-protocol/crates/report-protocol. Each Cargo job checks
+  # out this repository into `cargo-fallow/` and the fallow repository at this
+  # commit into `fallow-report-protocol/`, so the relative path resolves.
+  # Remove this when the crate is on crates.io.
   FALLOW_REPOSITORY: fallow-rs/fallow
   FALLOW_PROTOCOL_REF: f59bd722ddf45332a02bc3b912a70c854a64006c
 
+# fallow has a `changes` job that skips jobs when no input changed. This
+# repository is small, so each job runs on each event.
 jobs:
   fmt:
     name: Format
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
     defaults:
       run:
         working-directory: cargo-fallow
@@ -40,11 +49,17 @@ jobs:
           ref: ${{ env.FALLOW_PROTOCOL_REF }}
           path: fallow-report-protocol
           persist-credentials: false
-      - run: cargo fmt --check
+      - uses: ./cargo-fallow/.github/actions/setup-rust
+        with:
+          components: rustfmt
+      - run: cargo fmt --all -- --check
 
   clippy:
     name: Clippy
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
     defaults:
       run:
         working-directory: cargo-fallow
@@ -59,19 +74,22 @@ jobs:
           ref: ${{ env.FALLOW_PROTOCOL_REF }}
           path: fallow-report-protocol
           persist-credentials: false
-      - uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
+      - uses: ./cargo-fallow/.github/actions/setup-rust
         with:
-          workspaces: cargo-fallow
+          components: clippy
       # The pedantic, nursery and restriction lints come from [lints] in Cargo.toml.
       - run: cargo clippy --all-targets --locked -- -D warnings
 
   test:
     name: Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-26.04, macos-latest, windows-latest]
     defaults:
       run:
         working-directory: cargo-fallow
@@ -86,14 +104,121 @@ jobs:
           ref: ${{ env.FALLOW_PROTOCOL_REF }}
           path: fallow-report-protocol
           persist-credentials: false
-      - uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
+      - uses: ./cargo-fallow/.github/actions/setup-rust
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
-          workspaces: cargo-fallow
-      - run: cargo test --locked
+          tool: cargo-nextest
+      # The `ci` profile is in .config/nextest.toml. The crate is a binary,
+      # so it has no doctests for `cargo test --doc` to run.
+      - name: Run tests
+        run: cargo nextest run --profile ci --locked
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: nextest-junit-${{ matrix.os }}
+          path: cargo-fallow/target/nextest/ci/junit.xml
+          if-no-files-found: ignore
+          retention-days: 14
+
+  doc:
+    name: Documentation
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: cargo-fallow
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: cargo-fallow
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ env.FALLOW_REPOSITORY }}
+          ref: ${{ env.FALLOW_PROTOCOL_REF }}
+          path: fallow-report-protocol
+          persist-credentials: false
+      - uses: ./cargo-fallow/.github/actions/setup-rust
+      - name: Check documentation
+        env:
+          RUSTDOCFLAGS: "-D warnings"
+        run: cargo doc --no-deps --document-private-items
+
+  typos:
+    name: Typos
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: crate-ci/typos@7f9d0819ca1c008ade73f4b41fa9d258d48f605b # v1
+      - name: Hidden unicode
+        run: python3 scripts/scan-hidden-unicode.py --mode committed
+      - name: Hidden-unicode scanner self-test
+        run: bash scripts/test-scan-hidden-unicode.sh
+      - name: Merge-conflict markers
+        run: sh scripts/check-conflict-markers.sh
+      - name: Merge-conflict marker check self-test
+        run: bash scripts/test-check-conflict-markers.sh
+
+  # fallow runs these steps in its JS Lint job. This repository has no
+  # JavaScript lint scope, so the job keeps only the script checks.
+  scripts:
+    name: Script checks
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          filter: blob:none
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+      - name: Narrator comment guard
+        run: node scripts/check-comment-quality.mjs --all
+      - name: Script tests
+        run: node --test scripts/*.test.mjs .github/scripts/*.test.mjs
+      # Same rule as the file-size pre-commit step, against the merge base.
+      # It is the last step and runs after a failed step, so a growth failure
+      # hides no other result.
+      - name: Large file growth
+        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: node scripts/check-file-size.mjs --base "origin/$BASE_REF"
+
+  audit:
+    name: Security Audit
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        with:
+          tool: cargo-audit
+      # cargo audit reads only Cargo.lock, so the job needs no protocol checkout.
+      - run: cargo audit
 
   deny:
-    name: Dependency policy
-    runs-on: ubuntu-latest
+    name: Cargo Deny
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -111,31 +236,108 @@ jobs:
           command: check
           arguments: --all-features
 
-  dco:
-    name: DCO sign-off
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
+  shear:
+    name: Unused Dependencies
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: cargo-fallow
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 0
+          path: cargo-fallow
           persist-credentials: false
-      # Each commit must have a Signed-off-by trailer for its author.
-      # CONTRIBUTING.md describes the rule.
-      - name: Check Signed-off-by trailers
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ env.FALLOW_REPOSITORY }}
+          ref: ${{ env.FALLOW_PROTOCOL_REF }}
+          path: fallow-report-protocol
+          persist-credentials: false
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        with:
+          tool: cargo-shear
+      - run: cargo shear
+
+  zizmor:
+    name: Actions Security
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          enable-cache: false
+      # Pin zizmor so a new release adding/strengthening an audit cannot redden
+      # CI on main with no change here. Bump deliberately, together with fallow.
+      # fallow passes `--config .github/zizmor.yml` for its release and
+      # Dependabot workflows. This repository has no such workflow, and
+      # zizmor 1.26.1 reports no finding here, so it needs no config file.
+      - run: uvx zizmor@1.26.1 --min-confidence medium --format plain .github/
+
+  msrv:
+    name: MSRV (1.97)
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      RUSTUP_TOOLCHAIN: 1.97.0
+    defaults:
+      run:
+        working-directory: cargo-fallow
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: cargo-fallow
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ env.FALLOW_REPOSITORY }}
+          ref: ${{ env.FALLOW_PROTOCOL_REF }}
+          path: fallow-report-protocol
+          persist-credentials: false
+      - uses: ./cargo-fallow/.github/actions/setup-rust
+        with:
+          toolchain: '1.97.0'
+          cache-key: msrv
+      # Cargo 1.97.0 does not retry spurious registry HTTP errors. Fetch with
+      # patched Cargo, then keep the exact minimum compiler check offline.
+      - name: Fetch locked dependencies with patched Cargo
         run: |
-          missing=0
-          for sha in $(git rev-list --no-merges "$BASE_SHA..$HEAD_SHA"); do
-            author="$(git log -1 --format='%an <%ae>' "$sha")"
-            if ! git log -1 --format='%(trailers:key=Signed-off-by,valueonly)' "$sha" | grep -qxF "$author"; then
-              echo "::error::Commit $sha has no 'Signed-off-by: $author' trailer."
-              missing=1
+          rustup toolchain install 1.97.1 --profile minimal --no-self-update
+          cargo +1.97.1 fetch --locked
+      # fallow checks only the packages that it publishes. This package has
+      # `publish = false` until M4, so the check reads every package.
+      - name: Verify crate MSRV metadata
+        run: |
+          cargo metadata --no-deps --format-version 1 | jq -e --arg msrv "1.97" '
+            [.packages[] | .rust_version]
+            | length > 0 and all(. == $msrv)
+          '
+      - name: Check compilation
+        run: cargo check --locked --offline
+
+  ci-ok:
+    name: CI
+    if: always()
+    needs: [fmt, clippy, test, doc, typos, scripts, audit, deny, shear, zizmor, msrv]
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: All checks passed
+        run: |
+          results='${{ toJSON(needs.*.result) }}'
+          for result in $(echo "$results" | jq -r '.[]'); do
+            if [ "$result" != "success" ] && [ "$result" != "skipped" ]; then
+              echo "::error::Job failed with result: $result"
+              exit 1
             fi
           done
-          if [ "$missing" -ne 0 ]; then
-            echo "Add the sign-off with 'git commit -s'. See CONTRIBUTING.md."
-            exit 1
-          fi
