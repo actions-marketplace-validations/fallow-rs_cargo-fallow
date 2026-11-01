@@ -59,7 +59,7 @@ hooks.
 | MSRV | `cargo +1.97.0 check --locked` | none | `ci.yml` |
 | Commit messages | `commitlint` | commit-msg | `commitlint.yml` |
 | DCO sign-off | `node .github/scripts/check-dco.mjs` | commit-msg | `commitlint.yml` |
-| Line coverage | `cargo llvm-cov` | none | `coverage.yml`, floor 92.0% (same as fallow) |
+| Line coverage | `cargo llvm-cov` | none | `coverage.yml`, floor 95.0% |
 | Fuzz smoke | `cargo +nightly-2026-07-20 fuzz run fuzz_parse -- -max_total_time=30` | none | `fuzz-smoke.yml`, main and weekly |
 | Visibility audit | `scripts/check-hawk.sh` | none | `hawk.yml`, weekly |
 

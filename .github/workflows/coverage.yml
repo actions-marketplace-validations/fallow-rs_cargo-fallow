@@ -22,7 +22,7 @@ env:
 
 # fallow also has a `changes` job and a badge `publish` job. The badge needs
 # a `badges` branch on the public repository, so it is not here yet. The
-# coverage floor is the same as in fallow.
+# coverage floor is higher than the floor of 92.0 in fallow.
 jobs:
   coverage:
     name: Coverage
@@ -70,10 +70,10 @@ jobs:
           echo "Line coverage: $COVERAGE%" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Enforce coverage floor
-        # Hard gate with the same floor as fallow. Raise the floor over time,
-        # never lower it. Local line coverage at the time of this change: 97.7%.
+        # Hard gate. Raise the floor over time, never lower it. Local line
+        # coverage at the time of this change: 98.1%.
         run: |
-          FLOOR=92.0
+          FLOOR=95.0
           awk -v cov="$COVERAGE" -v floor="$FLOOR" 'BEGIN {
             if (cov + 0 < floor + 0) {
               printf "FAIL: coverage %.1f%% is below the floor of %.1f%%\n", cov, floor
