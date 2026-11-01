@@ -138,7 +138,7 @@ unused_async_trait_impl = "allow"       # Trait signatures (tower-lsp, rmcp) req
 assert_is_empty = "allow"               # The assert_eq! form needs `[] as [T; 0]` for most collections
 
 # Process-spawn ban (method list lives in .clippy.toml). Allowed crate-wide,
-# the same as the fallow workspace. src/main.rs denies it again at the crate
+# the same as the fallow workspace. src/lib.rs denies it again at the crate
 # root, and the workspace loader carries the one narrow expectation.
 disallowed_methods = "allow"
 

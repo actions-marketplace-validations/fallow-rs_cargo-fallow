@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Run the Hawk workspace visibility audit with the pinned version.
 # Ported from fallow. fallow excludes its facade and contract library crates
-# with `--exclude-crate`. This package has no library crate, so the list is
-# empty.
+# with `--exclude-crate`. The library crate of this package exports only
+# `run`, and the binary calls it, so the list is empty.
 set -euo pipefail
 
 readonly EXPECTED_HAWK_VERSION="cargo hawk 0.1.9"

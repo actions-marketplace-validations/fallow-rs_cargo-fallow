@@ -17,6 +17,8 @@ the same checkout. Read a file again immediately before you edit it.
 cargo metadata -> workspace model -> gates -> report -> render
 ```
 
+- `src/lib.rs` holds the modules and the one public function, `run`.
+- `src/main.rs` is a thin binary that calls `run`.
 - `src/workspace.rs` reads `cargo metadata --no-deps` and builds the model.
 - `src/gates.rs` computes the gate outcomes.
 - `src/report.rs` holds the report shape.
