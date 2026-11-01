@@ -1,0 +1,18 @@
+# cargo-nextest configuration. CI selects a profile with `--profile`.
+# Local `cargo nextest run` keeps the default profile.
+#
+# fallow also has a setup script that gives each run its own TMPDIR, because
+# its audit tests leave caches in the shared temp directory. The tests of this
+# crate copy each fixture to a `tempfile` directory and leave no cache, so the
+# setup script and its `[experimental]` table do not apply.
+
+# CI runs every test so one run shows every failure. No retries: a retry
+# hides a flaky test. The JUnit report gives per-test timings and a
+# failure record. It is written to target/nextest/ci/junit.xml.
+[profile.ci]
+fail-fast = false
+retries = 0
+failure-output = "immediate-final"
+
+[profile.ci.junit]
+path = "junit.xml"

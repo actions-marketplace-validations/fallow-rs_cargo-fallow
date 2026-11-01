@@ -1,0 +1,7 @@
+# Ported from fallow. Only the entries that apply to this repository stay.
+# fallow excludes its build output and benchmark paths, and allows words from
+# its own tests. This repository has none of those paths or words.
+[files]
+extend-exclude = [
+    "tests/fixtures/",
+]
