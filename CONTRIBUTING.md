@@ -69,7 +69,9 @@ fallow runs `actionlint` by hand only, not in a hook or in CI. Do the same:
 run `actionlint` after you change a workflow. `.github/actionlint.yaml` holds
 its configuration.
 
-The tools are `typos`, `cargo-shear`, `cargo-deny`, `cargo-audit`,
+`mise.toml` pins the version of each local tool. Run `mise install` to get
+them, or install each tool by hand at the version in that file. The tools
+are `typos`, `cargo-shear`, `cargo-deny`, `cargo-audit`,
 `cargo-nextest`, `cargo-llvm-cov`, `actionlint`, `zizmor`, Node.js 22 and
 Python 3. The Hawk audit needs `cargo hawk` 0.1.9 on toolchain 1.97.1.
 

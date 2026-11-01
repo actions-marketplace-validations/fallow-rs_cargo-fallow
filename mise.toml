@@ -1,0 +1,47 @@
+# Optional pinned set of local development tools. Run `mise install` to get it.
+# Contributors without mise can install each tool by hand at the version below.
+#
+# Rust is not pinned here. `rust-toolchain.toml` owns the Rust version through
+# rustup. The MSRV check uses toolchain 1.97.0, the Hawk audit 1.97.1 and the
+# fuzz smoke nightly-2026-07-20. Install them with rustup.
+#
+# Keep each version in lockstep with CI and with the mise.toml of fallow.
+# Where fallow pins a tool, this file uses the same version. Where only the CI
+# of this repository pins a tool, this file uses the CI version.
+
+[tools]
+# Same major version as each `actions/setup-node` step in the workflows.
+node = "22"
+
+# Same version as fallow. The CI `typos` job uses the same typos action
+# commit as fallow.
+"aqua:crate-ci/typos" = "1.50.2"
+
+# Same version as fallow. The CI `deny` job uses the same cargo-deny action
+# commit as fallow.
+"aqua:EmbarkStudios/cargo-deny" = "0.20.2"
+
+# CI installs these tools without a version. The versions are the same as in
+# fallow.
+"github:Boshen/cargo-shear" = "1.14.0"
+"aqua:rustsec/rustsec/cargo-audit" = "0.22.2"
+"aqua:nextest-rs/nextest/cargo-nextest" = "0.9.146"
+"aqua:taiki-e/cargo-llvm-cov" = "0.9.1"
+
+# Same version as the `zizmor` job in ci.yml, which runs `uvx zizmor@1.26.1`.
+"aqua:zizmorcore/zizmor" = "1.26.1"
+
+# CI does not run actionlint, and fallow does not pin it. Run it by hand after
+# a change to a workflow file.
+"aqua:rhysd/actionlint" = "1.7.12"
+
+# Same version as the `Install cargo-fuzz` step in fuzz-smoke.yml.
+"cargo:cargo-fuzz" = "0.13.2"
+
+# Git hook runner. `hk.pkl` defines the hooks. Run `hk install` once per clone.
+hk = "2.4.0"
+# hk evaluates `hk.pkl` with the pkl CLI.
+pkl = "0.32.1"
+
+# hawk.yml pins cargo-hawk 0.1.9 with a checksum. fallow does not pin it in
+# its mise.toml, so this file does not pin it either.
