@@ -47,14 +47,15 @@ hooks.
 | Hidden unicode | `python3 scripts/scan-hidden-unicode.py --mode committed` | pre-commit | `ci.yml` |
 | Conflict markers | `sh scripts/check-conflict-markers.sh` | pre-commit | `ci.yml` |
 | Narrator comments | `node scripts/check-comment-quality.mjs --all` | pre-commit | `ci.yml` |
-| File size | `node scripts/check-file-size.mjs --base origin/main` | pre-commit | `ci.yml` |
+| File size | `node scripts/check-file-size.mjs --staged` | pre-commit | `ci.yml`, with `--base origin/main` |
 | JS lint | `npm run lint:js` | pre-commit | `ci.yml` |
 | JS format | `npm run fmt:js:check` | pre-commit | `ci.yml` |
 | Script tests | `npm run test:scripts` | none | `ci.yml` |
 | Dependency policy | `cargo deny check` | none | `ci.yml` |
 | Security advisories | `cargo audit` | none | `ci.yml` |
 | Unused dependencies | `cargo shear` | pre-push | `ci.yml` |
-| Workflow security | `actionlint` and `zizmor .github/` | none | `ci.yml` |
+| Workflow syntax | `actionlint` | none | none |
+| Workflow security | `uvx zizmor@1.26.1 --min-confidence medium --format plain .github/` | none | `ci.yml` |
 | MSRV | `cargo +1.97.0 check --locked` | none | `ci.yml` |
 | Commit messages | `commitlint` | commit-msg | `commitlint.yml` |
 | DCO sign-off | `node .github/scripts/check-dco.mjs` | commit-msg | `commitlint.yml` |
@@ -63,6 +64,10 @@ hooks.
 | Visibility audit | `scripts/check-hawk.sh` | none | `hawk.yml`, weekly |
 
 A file over 2000 lines must not grow. Move new code to a new module.
+
+fallow runs `actionlint` by hand only, not in a hook or in CI. Do the same:
+run `actionlint` after you change a workflow. `.github/actionlint.yaml` holds
+its configuration.
 
 The tools are `typos`, `cargo-shear`, `cargo-deny`, `cargo-audit`,
 `cargo-nextest`, `cargo-llvm-cov`, `actionlint`, `zizmor`, Node.js 22 and
