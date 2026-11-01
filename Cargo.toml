@@ -145,3 +145,17 @@ disallowed_methods = "allow"
 # The dependency tree has duplicate versions that this crate cannot remove,
 # for example the windows-sys versions of clap and tempfile.
 multiple_crate_versions = "allow"
+
+# The same settings as `[profile.release]` in fallow, except `panic`. fallow
+# aborts on a panic. This binary unwinds, because the bounded parse in
+# src/parse.rs turns a panic in syn into a failed parse of one file.
+[profile.release]
+lto = true
+codegen-units = 1
+strip = "symbols"
+opt-level = 3
+panic = "unwind"
+
+# Optimize heavy deps for size, not in the hot path. The same as fallow.
+[profile.release.package.clap_builder]
+opt-level = "z"
