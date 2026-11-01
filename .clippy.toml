@@ -1,0 +1,18 @@
+# M0 uses BTreeMap and Vec for sorted output. Use rustc_hash when a map is
+# first needed.
+disallowed-types = [
+    { path = "std::collections::HashMap", reason = "Use rustc_hash::FxHashMap for better performance" },
+    { path = "std::collections::HashSet", reason = "Use rustc_hash::FxHashSet for better performance" },
+]
+
+# Maximum nesting depth before clippy::excessive_nesting fires.
+excessive-nesting-threshold = 7
+
+# SIG unit size: functions over 100 lines are flagged.
+too-many-lines-threshold = 100
+
+# SIG unit interfacing.
+too-many-arguments-threshold = 6
+
+# SIG unit complexity.
+cognitive-complexity-threshold = 25

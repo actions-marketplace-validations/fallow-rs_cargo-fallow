@@ -1,0 +1,31 @@
+// Git hooks for this repository. Run `hk install` once per clone.
+amends "package://github.com/jdx/hk/releases/download/v2.4.0/hk@2.4.0#/Config.pkl"
+
+// Files that can change the result of rustfmt or Clippy.
+local rustInputs = List(
+  "**/*.rs",
+  "**/Cargo.toml",
+  "Cargo.lock",
+  "rust-toolchain.toml",
+  ".clippy.toml"
+)
+
+hooks {
+  ["pre-commit"] {
+    // Check only. `hk fix` applies the fix commands on request.
+    fix = false
+    // The git stash stack is shared by every worktree of this repository.
+    stash = "none"
+    steps {
+      ["cargo-fmt"] {
+        glob = rustInputs
+        check = "cargo fmt --check"
+        fix = "cargo fmt"
+      }
+      ["cargo-clippy"] {
+        glob = rustInputs
+        check = "cargo clippy --all-targets --locked -- -D warnings"
+      }
+    }
+  }
+}

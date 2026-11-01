@@ -1,0 +1,4 @@
+[workspace]
+resolver = "3"
+# The order is not sorted on purpose: the report sorts members by name.
+members = ["crates/zeta-cli", "crates/alpha-lib"]
