@@ -56,6 +56,7 @@ the hooks. Run `npm ci` once to install commitlint for the commit-msg hook.
 | Commit messages | `commitlint` | commit-msg | `commitlint.yml` |
 | DCO sign-off | `node .github/scripts/check-dco.mjs` | commit-msg | `commitlint.yml` |
 | Line coverage | `cargo llvm-cov` | none | `coverage.yml`, floor 92.0% (same as fallow) |
+| Fuzz smoke | `cargo +nightly-2026-07-20 fuzz run fuzz_parse -- -max_total_time=30` | none | `fuzz-smoke.yml`, main and weekly |
 | Visibility audit | `scripts/check-hawk.sh` | none | `hawk.yml`, weekly |
 
 A file over 2000 lines must not grow. Move new code to a new module.
@@ -69,7 +70,6 @@ Python 3. The Hawk audit needs `cargo hawk` 0.1.9 on toolchain 1.97.1.
 These fallow gates do not apply now:
 
 - Miri: the crate has no unsafe code, and `unsafe_code` is `forbid`.
-- Fuzz: the crate does not parse untrusted input yet.
 - The napi, VS Code, Zed, Docker and npm jobs: the crate has no such
   surface.
 - CodeQL and OpenSSF Scorecard: both need the public GitHub repository.
