@@ -1,0 +1,31 @@
+# Ported from fallow. fallow also updates its fuzz, editor, npm package,
+# Docker and pip manifests. This repository has none of those.
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 10
+
+  # The commitlint packages in package.json.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 5
+
+  # fallow lists only `/`. Here the composite action has its own pinned
+  # actions, so the list names its directory too.
+  - package-ecosystem: github-actions
+    directories:
+      - /
+      - /.github/actions/setup-rust
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
