@@ -110,3 +110,32 @@ jobs:
           manifest-path: cargo-fallow/Cargo.toml
           command: check
           arguments: --all-features
+
+  dco:
+    name: DCO sign-off
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      # Each commit must have a Signed-off-by trailer for its author.
+      # CONTRIBUTING.md describes the rule.
+      - name: Check Signed-off-by trailers
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          missing=0
+          for sha in $(git rev-list --no-merges "$BASE_SHA..$HEAD_SHA"); do
+            author="$(git log -1 --format='%an <%ae>' "$sha")"
+            if ! git log -1 --format='%(trailers:key=Signed-off-by,valueonly)' "$sha" | grep -qxF "$author"; then
+              echo "::error::Commit $sha has no 'Signed-off-by: $author' trailer."
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            echo "Add the sign-off with 'git commit -s'. See CONTRIBUTING.md."
+            exit 1
+          fi
