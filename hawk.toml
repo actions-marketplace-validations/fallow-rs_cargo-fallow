@@ -1,0 +1,14 @@
+# Hawk configuration, ported from fallow. scripts/check-hawk.sh runs Hawk with
+# this file. fallow lists its CLI, LSP, MCP and multicall binaries. This
+# package has one binary.
+preserve-uniform-field-visibility = true
+
+[[production]]
+package = "cargo-fallow"
+bin = "cargo-fallow"
+reason = "The cargo subcommand binary that the package installs"
+
+# fallow also has an `all` profile with `all-features = true`. This package
+# has no Cargo features, so that profile is the same as `default`.
+[[feature-profile]]
+name = "default"
