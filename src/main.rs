@@ -3,6 +3,9 @@
 //! Cargo runs this binary as `cargo-fallow fallow <args>`. A direct call runs
 //! it as `cargo-fallow <args>`. Both forms give the same result.
 
+// Only the workspace loader spawns a process. See `.clippy.toml`.
+#![cfg_attr(not(test), deny(clippy::disallowed_methods))]
+
 mod cli;
 mod error;
 mod gates;

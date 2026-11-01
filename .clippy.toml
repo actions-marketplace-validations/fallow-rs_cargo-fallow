@@ -5,6 +5,20 @@ disallowed-types = [
     { path = "std::collections::HashSet", reason = "Use rustc_hash::FxHashSet for better performance" },
 ]
 
+# Process spawning is allowed crate-wide in Cargo.toml, then denied again at
+# the crate root in src/main.rs, the same pattern as the fallow analysis
+# crates. The workspace loader in src/workspace.rs is the one module that
+# spawns a process: it runs `cargo metadata`. It carries a narrow expectation
+# at that call site. fallow also bans `glob::glob`. This crate does not depend
+# on the glob crate, so that entry does not apply.
+#
+# `MetadataCommand::exec` is in the list because it spawns `cargo` inside the
+# cargo_metadata crate, where the `Command::new` entry cannot see it.
+disallowed-methods = [
+    { path = "std::process::Command::new", reason = "Only the workspace loader spawns a process; the deny is scoped by a crate-root attribute" },
+    { path = "cargo_metadata::MetadataCommand::exec", reason = "Only the workspace loader spawns `cargo metadata`; the deny is scoped by a crate-root attribute" },
+]
+
 # Maximum nesting depth before clippy::excessive_nesting fires.
 excessive-nesting-threshold = 7
 

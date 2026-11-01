@@ -52,6 +52,10 @@ pub fn load(manifest_path: Option<&Path>) -> Result<Workspace, CliError> {
         check_manifest(path)?;
         command.manifest_path(path);
     }
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the workspace loader is the one module that spawns a process: `cargo metadata`"
+    )]
     let metadata = command.exec().map_err(|err| metadata_error(&err))?;
     let root = metadata.workspace_root.clone();
     let mut members: Vec<Member> = metadata
