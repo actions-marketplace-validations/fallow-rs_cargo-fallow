@@ -1,0 +1,70 @@
+name: Coverage
+
+# Runs on main only, to keep pull request jobs few.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Pushes to main share one group, so a newer run cancels the older one. Only
+# the newest main commit needs a result. A manual run gets a group of its own.
+concurrency:
+  group: "coverage-${{ github.event_name == 'push' && github.ref || github.run_id }}"
+  cancel-in-progress: "${{ github.event_name == 'push' }}"
+
+permissions: {}
+
+env:
+  CARGO_TERM_COLOR: always
+  # M0 only. See the same variables in ci.yml.
+  FALLOW_REPOSITORY: fallow-rs/fallow
+  FALLOW_PROTOCOL_REF: f59bd722ddf45332a02bc3b912a70c854a64006c
+
+# fallow also has a `changes` job, a coverage floor and a badge `publish`
+# job. This workflow only reports the number. A floor needs a stable
+# baseline first, and the badge needs a `badges` branch on the public
+# repository.
+jobs:
+  coverage:
+    name: Coverage
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: cargo-fallow
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: cargo-fallow
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ env.FALLOW_REPOSITORY }}
+          ref: ${{ env.FALLOW_PROTOCOL_REF }}
+          path: fallow-report-protocol
+          persist-credentials: false
+
+      - name: Set up Rust
+        uses: ./cargo-fallow/.github/actions/setup-rust
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        with:
+          tool: cargo-llvm-cov
+
+      - name: Run tests with coverage
+        run: |
+          mkdir -p coverage
+          cargo llvm-cov --locked --lcov --output-path coverage/lcov.info
+
+      - name: Compute coverage
+        run: |
+          COVERAGE=$(awk -F: '
+            /^LF:/ { total += $2 }
+            /^LH:/ { hit += $2 }
+            END { if (total > 0) printf "%.1f", (hit/total)*100; else print "0" }
+          ' coverage/lcov.info)
+          echo "Coverage: $COVERAGE%"
+          echo "Line coverage: $COVERAGE%" >> "$GITHUB_STEP_SUMMARY"
