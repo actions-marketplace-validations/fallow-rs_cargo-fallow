@@ -5,9 +5,6 @@ sign-off rule.
 
 ## Build and test
 
-Check out the fallow repository next to this repository as
-`../fallow-report-protocol`. M0 reads `fallow-report-protocol` from that path.
-
 ```bash
 cargo build
 cargo test

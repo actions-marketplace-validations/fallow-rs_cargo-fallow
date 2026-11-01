@@ -19,11 +19,6 @@ cd cargo-fallow
 cargo install --path .
 ```
 
-M0 depends on `fallow-report-protocol` through a relative path. Check out the
-fallow repository next to this repository as `../fallow-report-protocol`. CI
-does the same at a pinned commit. This setup is for M0 only. A crates.io
-version replaces it before the first publish.
-
 `cargo-fallow` installs one binary, `cargo-fallow`. It never installs a binary
 named `fallow`. That name belongs to the JavaScript CLI.
 

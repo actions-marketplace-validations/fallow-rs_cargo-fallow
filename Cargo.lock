@@ -270,6 +270,8 @@ dependencies = [
 [[package]]
 name = "fallow-report-protocol"
 version = "3.38.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "431e5fa78b780776417bba89bd14b06c80ae31db6e8e9472a6434284b93af3d3"
 dependencies = [
  "serde",
 ]

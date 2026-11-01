@@ -18,13 +18,6 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  # M0 only. Cargo.toml reads fallow-report-protocol from
-  # ../fallow-report-protocol/crates/report-protocol. Each Cargo job checks
-  # out this repository into `cargo-fallow/` and the fallow repository at this
-  # commit into `fallow-report-protocol/`, so the relative path resolves.
-  # Remove this when the crate is on crates.io.
-  FALLOW_REPOSITORY: fallow-rs/fallow
-  FALLOW_PROTOCOL_REF: 5c1a640e1620b74aadc419a4c20c9ebbc8c98fe8
 
 # fallow has a `changes` job that skips jobs when no input changed. This
 # repository is small, so each job runs on each event.
@@ -35,21 +28,11 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
-    defaults:
-      run:
-        working-directory: cargo-fallow
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          path: cargo-fallow
           persist-credentials: false
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: ${{ env.FALLOW_REPOSITORY }}
-          ref: ${{ env.FALLOW_PROTOCOL_REF }}
-          path: fallow-report-protocol
-          persist-credentials: false
-      - uses: ./cargo-fallow/.github/actions/setup-rust
+      - uses: ./.github/actions/setup-rust
         with:
           components: rustfmt
       - run: cargo fmt --all -- --check
@@ -62,21 +45,11 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: read
-    defaults:
-      run:
-        working-directory: cargo-fallow
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          path: cargo-fallow
           persist-credentials: false
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: ${{ env.FALLOW_REPOSITORY }}
-          ref: ${{ env.FALLOW_PROTOCOL_REF }}
-          path: fallow-report-protocol
-          persist-credentials: false
-      - uses: ./cargo-fallow/.github/actions/setup-rust
+      - uses: ./.github/actions/setup-rust
         with:
           components: clippy
       # The pedantic, nursery and restriction lints come from [lints] in Cargo.toml.
@@ -95,21 +68,11 @@ jobs:
       matrix:
         # The `windows` job below runs the tests on Windows.
         os: [ubuntu-26.04, macos-latest]
-    defaults:
-      run:
-        working-directory: cargo-fallow
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          path: cargo-fallow
           persist-credentials: false
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: ${{ env.FALLOW_REPOSITORY }}
-          ref: ${{ env.FALLOW_PROTOCOL_REF }}
-          path: fallow-report-protocol
-          persist-credentials: false
-      - uses: ./cargo-fallow/.github/actions/setup-rust
+      - uses: ./.github/actions/setup-rust
       - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
           tool: cargo-nextest
@@ -138,21 +101,11 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: read
-    defaults:
-      run:
-        working-directory: cargo-fallow
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          path: cargo-fallow
           persist-credentials: false
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: ${{ env.FALLOW_REPOSITORY }}
-          ref: ${{ env.FALLOW_PROTOCOL_REF }}
-          path: fallow-report-protocol
-          persist-credentials: false
-      - uses: ./cargo-fallow/.github/actions/setup-rust
+      - uses: ./.github/actions/setup-rust
         with:
           components: clippy
       - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
@@ -179,21 +132,11 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: read
-    defaults:
-      run:
-        working-directory: cargo-fallow
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          path: cargo-fallow
           persist-credentials: false
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: ${{ env.FALLOW_REPOSITORY }}
-          ref: ${{ env.FALLOW_PROTOCOL_REF }}
-          path: fallow-report-protocol
-          persist-credentials: false
-      - uses: ./cargo-fallow/.github/actions/setup-rust
+      - uses: ./.github/actions/setup-rust
       - name: Check documentation
         env:
           RUSTDOCFLAGS: "-D warnings"
@@ -280,13 +223,6 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          path: cargo-fallow
-          persist-credentials: false
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: ${{ env.FALLOW_REPOSITORY }}
-          ref: ${{ env.FALLOW_PROTOCOL_REF }}
-          path: fallow-report-protocol
           persist-credentials: false
       - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2
         with:
@@ -300,19 +236,9 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
-    defaults:
-      run:
-        working-directory: cargo-fallow
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          path: cargo-fallow
-          persist-credentials: false
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: ${{ env.FALLOW_REPOSITORY }}
-          ref: ${{ env.FALLOW_PROTOCOL_REF }}
-          path: fallow-report-protocol
           persist-credentials: false
       - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
@@ -349,21 +275,11 @@ jobs:
       contents: read
     env:
       RUSTUP_TOOLCHAIN: 1.98.0
-    defaults:
-      run:
-        working-directory: cargo-fallow
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          path: cargo-fallow
           persist-credentials: false
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: ${{ env.FALLOW_REPOSITORY }}
-          ref: ${{ env.FALLOW_PROTOCOL_REF }}
-          path: fallow-report-protocol
-          persist-credentials: false
-      - uses: ./cargo-fallow/.github/actions/setup-rust
+      - uses: ./.github/actions/setup-rust
         with:
           toolchain: '1.98.0'
           cache-key: msrv

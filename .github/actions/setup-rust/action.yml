@@ -1,10 +1,6 @@
 name: Setup Rust
 description: Install Rust toolchain and configure build caching
 
-# Ported from fallow. The `workspace` input is new. M0 checks out this
-# repository into `cargo-fallow/` next to `fallow-report-protocol/`, so the
-# toolchain file and the cache are not at the root of the GitHub workspace.
-
 inputs:
   toolchain:
     description: 'Rust toolchain to install (stable, nightly, 1.99.0, etc.). When empty, reads rust-toolchain.toml from the workspace directory.'
@@ -24,9 +20,6 @@ inputs:
   save-if:
     description: 'Save the cache only when this is "true". When empty, only pushes to main save, and every other run only restores.'
     default: ''
-  workspace:
-    description: 'Directory of the Cargo workspace, relative to the GitHub workspace.'
-    default: 'cargo-fallow'
 
 runs:
   using: composite
@@ -34,7 +27,6 @@ runs:
     - name: Resolve toolchain
       id: resolve
       shell: bash
-      working-directory: ${{ inputs.workspace }}
       env:
         INPUT_TOOLCHAIN: ${{ inputs.toolchain }}
       run: |
@@ -62,7 +54,6 @@ runs:
     # caches out of the repository cache quota.
     - uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
       with:
-        workspaces: ${{ inputs.workspace }}
         key: ${{ inputs.cache-key }}
         shared-key: ${{ inputs.shared-key }}
         save-if: ${{ inputs.save-if == 'true' || (inputs.save-if == '' && github.ref == 'refs/heads/main') }}

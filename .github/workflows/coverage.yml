@@ -16,9 +16,6 @@ permissions: {}
 
 env:
   CARGO_TERM_COLOR: always
-  # M0 only. See the same variables in ci.yml.
-  FALLOW_REPOSITORY: fallow-rs/fallow
-  FALLOW_PROTOCOL_REF: 5c1a640e1620b74aadc419a4c20c9ebbc8c98fe8
 
 # fallow also has a `changes` job and a badge `publish` job. The badge needs
 # a `badges` branch on the public repository, so it is not here yet. The
@@ -30,23 +27,13 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: read
-    defaults:
-      run:
-        working-directory: cargo-fallow
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          path: cargo-fallow
-          persist-credentials: false
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: ${{ env.FALLOW_REPOSITORY }}
-          ref: ${{ env.FALLOW_PROTOCOL_REF }}
-          path: fallow-report-protocol
           persist-credentials: false
 
       - name: Set up Rust
-        uses: ./cargo-fallow/.github/actions/setup-rust
+        uses: ./.github/actions/setup-rust
 
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29

@@ -18,9 +18,6 @@ env:
   HAWK_ARCHIVE: cargo-hawk-x86_64-unknown-linux-gnu.tar.gz
   HAWK_SHA256: f5a76a43aa6be1e55e44f5eac13310193ba77729673799250065f1d201018016
   HAWK_VERSION: 0.1.17
-  # M0 only. See the same variables in ci.yml.
-  FALLOW_REPOSITORY: fallow-rs/fallow
-  FALLOW_PROTOCOL_REF: 5c1a640e1620b74aadc419a4c20c9ebbc8c98fe8
 
 jobs:
   audit:
@@ -29,23 +26,13 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: read
-    defaults:
-      run:
-        working-directory: cargo-fallow
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          path: cargo-fallow
-          persist-credentials: false
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: ${{ env.FALLOW_REPOSITORY }}
-          ref: ${{ env.FALLOW_PROTOCOL_REF }}
-          path: fallow-report-protocol
           persist-credentials: false
 
-      - uses: ./cargo-fallow/.github/actions/setup-rust
+      - uses: ./.github/actions/setup-rust
         with:
           toolchain: '1.99.0'
           cache-key: hawk
