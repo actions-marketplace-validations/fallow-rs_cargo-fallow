@@ -1,0 +1,10 @@
+# Every text file checks out with LF bytes on every platform, the same rule as
+# in fallow. The repository contains no intentionally-CRLF files (verified:
+# zero CRLF blobs). The Windows test job reads the fixtures and the source
+# files, so a CRLF checkout there would test other bytes than Linux and macOS.
+# Binary files are auto-detected and unaffected.
+* text=auto eol=lf
+
+# Kept for emphasis: the tests copy the fixture bytes into the analyzed
+# workspaces.
+tests/fixtures/** text eol=lf
