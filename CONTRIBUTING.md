@@ -34,7 +34,8 @@ spawn a process. `.clippy.toml` holds that rule.
 
 The gates are the same as in the fallow repository, where they apply.
 `hk.pkl` runs the local gates. Run `hk install` once per clone to enable
-the hooks. Run `npm ci` once to install commitlint for the commit-msg hook.
+the hooks. Run `npm ci` once to install commitlint, oxlint and oxfmt for the
+hooks.
 
 | Gate | Command | Hook | CI |
 | --- | --- | --- | --- |
@@ -47,6 +48,8 @@ the hooks. Run `npm ci` once to install commitlint for the commit-msg hook.
 | Conflict markers | `sh scripts/check-conflict-markers.sh` | pre-commit | `ci.yml` |
 | Narrator comments | `node scripts/check-comment-quality.mjs --all` | pre-commit | `ci.yml` |
 | File size | `node scripts/check-file-size.mjs --base origin/main` | pre-commit | `ci.yml` |
+| JS lint | `npm run lint:js` | pre-commit | `ci.yml` |
+| JS format | `npm run fmt:js:check` | pre-commit | `ci.yml` |
 | Script tests | `npm run test:scripts` | none | `ci.yml` |
 | Dependency policy | `cargo deny check` | none | `ci.yml` |
 | Security advisories | `cargo audit` | none | `ci.yml` |

@@ -169,10 +169,9 @@ jobs:
       - name: Merge-conflict marker check self-test
         run: bash scripts/test-check-conflict-markers.sh
 
-  # fallow runs these steps in its JS Lint job. This repository has no
-  # JavaScript lint scope, so the job keeps only the script checks.
+  # The same steps as the JS Lint job in fallow.
   scripts:
-    name: Script checks
+    name: JS Lint
     runs-on: ubuntu-26.04
     timeout-minutes: 5
     permissions:
@@ -186,6 +185,11 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
+      - run: npm ci --no-audit --no-fund --ignore-scripts
+      - name: oxlint
+        run: npm run lint:js
+      - name: oxfmt --check
+        run: npm run fmt:js:check
       - name: Narrator comment guard
         run: node scripts/check-comment-quality.mjs --all
       - name: Script tests

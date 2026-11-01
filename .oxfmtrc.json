@@ -1,0 +1,15 @@
+{
+  "$schema": "https://raw.githubusercontent.com/oxc-project/oxc/main/apps/oxfmt/schema.json",
+  "ignorePatterns": [
+    "**/node_modules/**",
+    "**/target/**",
+    "**/coverage/**",
+    "**/*.json",
+    "**/*.jsonc",
+    "**/*.md",
+    "**/*.yaml",
+    "**/*.yml",
+    "tests/fixtures/**",
+    "fuzz/**"
+  ]
+}

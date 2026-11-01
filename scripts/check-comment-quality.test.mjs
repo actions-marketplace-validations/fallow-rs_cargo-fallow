@@ -142,7 +142,10 @@ test("CLI modes enforce staged additions and reject unknown modes", () => {
     );
 
     writeFileSync(join(root, "main.rs"), "// Here we start the program.\nfn main() {}\n");
-    writeFileSync(join(root, "example.mjs"), "const example = `\n// Now we show the example.\n`;\n");
+    writeFileSync(
+      join(root, "example.mjs"),
+      "const example = `\n// Now we show the example.\n`;\n",
+    );
     git("add", "main.rs", "example.mjs");
 
     const staged = run(["--staged"]);
