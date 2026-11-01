@@ -5,12 +5,12 @@
 
 use std::collections::BTreeMap;
 use std::fs;
-use std::path::Path;
 
-use fallow_report_protocol::{GateFile, GateOutcome, GateStatus};
+use fallow_report_protocol::{GateFile, GateFileReason, GateOutcome, GateStatus};
 use serde::Serialize;
 
 use crate::cli::Options;
+use crate::parse::{ParseOutcome, parse_source};
 use crate::workspace::{self, Workspace};
 
 /// The rule severity that `error-severity-findings` counts.
@@ -83,20 +83,6 @@ pub struct UnreadableFile {
     pub error: String,
 }
 
-/// The result of the parse of one target root file.
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum RootParse {
-    /// The file parsed.
-    Parsed,
-    /// The file could not be read as UTF-8 text.
-    Unreadable(String),
-    /// The parser stopped at an error.
-    Failed {
-        /// The number of parser errors.
-        error_count: u32,
-    },
-}
-
 /// Computes every gate for the workspace.
 pub fn evaluate(workspace: &Workspace, options: &Options) -> Evaluation {
     let mut outcomes = GateOutcomes::default();
@@ -125,12 +111,12 @@ fn parse_error(workspace: &Workspace, enforced: bool) -> (GateOutcome, Vec<Unrea
     let mut files = Vec::new();
     let mut unreadable = Vec::new();
     for path in roots {
-        match parse_root(&workspace::absolute_path(&workspace.root, path)) {
-            RootParse::Unreadable(error) => unreadable.push(UnreadableFile {
+        match fs::read_to_string(workspace::absolute_path(&workspace.root, path)) {
+            Ok(source) => files.extend(gate_file(path, parse_source(&source))),
+            Err(err) => unreadable.push(UnreadableFile {
                 path: path.to_owned(),
-                error,
+                error: err.to_string(),
             }),
-            parsed => files.extend(gate_file(path, &parsed)),
         }
     }
     let status = if files.is_empty() {
@@ -143,30 +129,25 @@ fn parse_error(workspace: &Workspace, enforced: bool) -> (GateOutcome, Vec<Unrea
 
 /// The `parse-error` gate item of one file, or `None` when the gate does not
 /// count the file.
-fn gate_file(path: &str, parsed: &RootParse) -> Option<GateFile> {
-    match *parsed {
-        RootParse::Parsed | RootParse::Unreadable(_) => None,
+fn gate_file(path: &str, parsed: ParseOutcome) -> Option<GateFile> {
+    match parsed {
+        ParseOutcome::Parsed => None,
         // syn stops at the first error and does not recover, so the parse
         // always stopped in the file.
-        RootParse::Failed { error_count } => Some(GateFile {
+        ParseOutcome::Failed { error_count } => Some(GateFile {
             path: path.to_owned(),
             error_count,
             panicked: true,
             reason: None,
         }),
-    }
-}
-
-fn parse_root(path: &Path) -> RootParse {
-    let source = match fs::read_to_string(path) {
-        Ok(source) => source,
-        Err(err) => return RootParse::Unreadable(err.to_string()),
-    };
-    match syn::parse_file(&source) {
-        Ok(_) => RootParse::Parsed,
-        Err(err) => RootParse::Failed {
-            error_count: u32::try_from(err.into_iter().count()).unwrap_or(u32::MAX),
-        },
+        // The contract sets the count and the parser outcome to placeholders
+        // when `reason` is set.
+        ParseOutcome::TooDeep => Some(GateFile {
+            path: path.to_owned(),
+            error_count: 1,
+            panicked: true,
+            reason: Some(GateFileReason::NestingTooDeep),
+        }),
     }
 }
 
@@ -211,18 +192,23 @@ mod tests {
 
     #[test]
     fn gate_file_follows_the_contract_for_each_parse_result() {
-        assert_eq!(gate_file("a.rs", &RootParse::Parsed), None);
+        assert_eq!(gate_file("a.rs", ParseOutcome::Parsed), None);
         assert_eq!(
-            gate_file("a.rs", &RootParse::Unreadable("denied".to_owned())),
-            None
-        );
-        assert_eq!(
-            gate_file("a.rs", &RootParse::Failed { error_count: 2 }),
+            gate_file("a.rs", ParseOutcome::Failed { error_count: 2 }),
             Some(GateFile {
                 path: "a.rs".to_owned(),
                 error_count: 2,
                 panicked: true,
                 reason: None,
+            })
+        );
+        assert_eq!(
+            gate_file("a.rs", ParseOutcome::TooDeep),
+            Some(GateFile {
+                path: "a.rs".to_owned(),
+                error_count: 1,
+                panicked: true,
+                reason: Some(GateFileReason::NestingTooDeep),
             })
         );
     }

@@ -7,7 +7,7 @@
 
 use std::io;
 
-use fallow_report_protocol::{GateOutcome, GateStatus};
+use fallow_report_protocol::{GateFile, GateFileReason, GateOutcome, GateStatus};
 use serde_json::{Value, json};
 
 use crate::gates::RustGateName;
@@ -44,7 +44,7 @@ fn log(report: &CheckReport) -> Value {
             json!({
                 "ruleId": name.as_str(),
                 "level": level,
-                "message": { "text": file_message(*name) },
+                "message": { "text": file_message(*name, file) },
                 "locations": [{
                     "physicalLocation": {
                         "artifactLocation": { "uri": file.path }
@@ -122,10 +122,15 @@ fn notification(name: RustGateName, outcome: &GateOutcome, level: &str) -> Value
     })
 }
 
-const fn file_message(name: RustGateName) -> &'static str {
-    match name {
-        RustGateName::ParseError => "The file does not parse.",
-        RustGateName::ErrorSeverityFindings => "The file has a finding with the error severity.",
+const fn file_message(name: RustGateName, file: &GateFile) -> &'static str {
+    match (name, file.reason) {
+        (RustGateName::ParseError, Some(GateFileReason::NestingTooDeep)) => {
+            "The file nests too deep to parse."
+        }
+        (RustGateName::ParseError, None) => "The file does not parse.",
+        (RustGateName::ErrorSeverityFindings, _) => {
+            "The file has a finding with the error severity."
+        }
     }
 }
 
@@ -133,5 +138,29 @@ const fn rule_description(name: RustGateName) -> &'static str {
     match name {
         RustGateName::ParseError => "A target root file does not parse.",
         RustGateName::ErrorSeverityFindings => "The run has a finding with the error severity.",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_error_message_names_the_reason() {
+        let mut file = GateFile {
+            path: "a.rs".to_owned(),
+            error_count: 1,
+            panicked: true,
+            reason: None,
+        };
+        assert_eq!(
+            file_message(RustGateName::ParseError, &file),
+            "The file does not parse."
+        );
+        file.reason = Some(GateFileReason::NestingTooDeep);
+        assert_eq!(
+            file_message(RustGateName::ParseError, &file),
+            "The file nests too deep to parse."
+        );
     }
 }

@@ -45,9 +45,9 @@ unsafe_code = "forbid"
 missing_docs = "warn"
 # The lints below are the same as `[workspace.lints.rust]` in fallow.
 absolute_paths_not_starting_with_crate = "warn" # Prefer crate/self/super paths inside crates
-# fallow also declares `cfg(miri)` and `cfg(fuzzing)`. This crate has no Miri
-# or fuzz job, so it declares no extra cfg names.
-unexpected_cfgs = "warn"
+# cargo-fuzz sets `cfg(fuzzing)`. fallow also declares `cfg(miri)`. This
+# crate has no Miri job, so it does not declare that name.
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(fuzzing)'] }
 unsafe_op_in_unsafe_fn = "warn"         # Require unsafe blocks even inside unsafe fn
 unused_unsafe = "warn"                  # Catch unnecessary unsafe blocks
 non_ascii_idents = "warn"              # Prevent non-ASCII identifiers

@@ -62,6 +62,11 @@ The gates are `error-severity-findings` and `parse-error`. They use the same
 names as the gates of the JavaScript CLI. A gate fails the run when its
 `status` is `fail` and `enforced` is `true`.
 
+The tool parses each target root file on a thread with a stack that is sized
+from the file length, so deep nesting cannot crash the run. A file that needs
+more stack than the tool can reserve counts for the `parse-error` gate with
+`reason: "nesting-too-deep"`.
+
 A target root file that cannot be read as UTF-8 text is not a parse error.
 The tool writes a warning to stderr, and the `parse-error` gate does not
 judge the file. `--quiet` does not hide the warning.

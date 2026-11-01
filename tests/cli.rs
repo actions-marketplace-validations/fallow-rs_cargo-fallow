@@ -363,6 +363,52 @@ fn unreadable_root_file_is_a_warning_and_not_a_parse_error() {
     );
 }
 
+/// Repeats `open`, then `middle`, then `close`, each `depth` times.
+fn nested(open: &str, middle: &str, close: &str, depth: usize) -> Vec<u8> {
+    format!("{}{middle}{}\n", open.repeat(depth), close.repeat(depth)).into_bytes()
+}
+
+#[test]
+fn deeply_nested_root_file_parses_without_a_stack_overflow() {
+    // 2000 levels of `Box<` need more than the 8 MiB main-thread stack in a
+    // debug and in a release build. Before the bounded parse, the process
+    // aborted with a stack overflow.
+    let source = nested("type T = ", "", "", 1)
+        .into_iter()
+        .chain(nested("Box<", "u8", ">", 2000))
+        .chain(*b";\n")
+        .collect::<Vec<u8>>();
+    let fixture = Fixture::package(&[("src/lib.rs", &source)]);
+    let result = check(
+        &fixture,
+        &["--format", "json", "--quiet", "--fail-on-parse-error"],
+    );
+    assert_eq!(result.code, 0, "{}", result.stderr);
+    let gate = &result.json()["gate_outcomes"]["parse-error"];
+    assert_eq!(gate["status"], "pass");
+}
+
+#[test]
+fn deeply_nested_invalid_root_file_is_a_parse_error() {
+    let fixture = Fixture::package(&[(
+        "src/lib.rs",
+        &nested("type T = ", "", "", 1)
+            .into_iter()
+            .chain(nested("&", "", "", 20_000))
+            .collect::<Vec<u8>>(),
+    )]);
+    let result = check(
+        &fixture,
+        &["--format", "json", "--quiet", "--fail-on-parse-error"],
+    );
+    assert_eq!(result.code, 1, "{}", result.stderr);
+    let gate = &result.json()["gate_outcomes"]["parse-error"];
+    assert_eq!(
+        gate["files"],
+        serde_json::json!([{ "path": "src/lib.rs", "error_count": 1, "panicked": true }])
+    );
+}
+
 fn assert_json_error(result: &Run, code: &str) {
     assert_eq!(result.code, 2, "{}", result.stderr);
     let error = result.json();

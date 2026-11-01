@@ -15,6 +15,12 @@ disallowed-types = [
 # `MetadataCommand::exec` is in the list because it spawns `cargo` inside the
 # cargo_metadata crate, where the `Command::new` entry cannot see it.
 disallowed-methods = [
+    # Every parse of workspace source runs on the sized stack of
+    # `parse::parse_source`, so deep nesting cannot overflow the stack. This
+    # entry is the Rust form of scripts/check-parse-sites.mjs in fallow.
+    { path = "syn::parse_file", reason = "Parse workspace source only through parse::parse_source, which bounds the stack" },
+    { path = "syn::parse_str", reason = "Parse workspace source only through parse::parse_source, which bounds the stack" },
+    { path = "syn::parse2", reason = "Parse workspace source only through parse::parse_source, which bounds the stack" },
     { path = "std::process::Command::new", reason = "Only the workspace loader spawns a process; the deny is scoped by a crate-root attribute" },
     { path = "cargo_metadata::MetadataCommand::exec", reason = "Only the workspace loader spawns `cargo metadata`; the deny is scoped by a crate-root attribute" },
 ]

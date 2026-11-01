@@ -10,6 +10,7 @@
 mod cli;
 mod error;
 mod gates;
+mod parse;
 mod render;
 mod report;
 mod workspace;
