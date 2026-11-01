@@ -40,8 +40,19 @@ tempfile = "3"
 serde_json = "1"
 
 [lints.rust]
+# Stricter than fallow, which uses "warn". This crate has no unsafe code.
 unsafe_code = "forbid"
 missing_docs = "warn"
+# The lints below are the same as `[workspace.lints.rust]` in fallow.
+absolute_paths_not_starting_with_crate = "warn" # Prefer crate/self/super paths inside crates
+# fallow also declares `cfg(miri)` and `cfg(fuzzing)`. This crate has no Miri
+# or fuzz job, so it declares no extra cfg names.
+unexpected_cfgs = "warn"
+unsafe_op_in_unsafe_fn = "warn"         # Require unsafe blocks even inside unsafe fn
+unused_unsafe = "warn"                  # Catch unnecessary unsafe blocks
+non_ascii_idents = "warn"              # Prevent non-ASCII identifiers
+unit_bindings = "warn"                 # Catch useless `let _ = expr` bindings
+tail_expr_drop_order = "warn"          # Catch temporaries dropped in surprising order
 
 [lints.clippy]
 # Lint groups (priority -1 so individual overrides take precedence)
@@ -112,6 +123,24 @@ items_after_statements = "allow"
 single_match_else = "allow"
 redundant_closure_for_method_calls = "allow"
 similar_names = "allow"
+wildcard_imports = "allow"
+doc_markdown = "allow"                  # False positives on technical terms
+too_long_first_doc_paragraph = "allow"  # Too strict for module-level docs
+struct_excessive_bools = "allow"        # CLI filter structs need many bools
+fn_params_excessive_bools = "allow"     # Same reason
+
+# Allow nursery lints that are too noisy or have false positives
+option_if_let_else = "allow"            # Too many false positives in match-heavy code
+missing_const_for_fn = "allow"          # Not a const library
+fallible_impl_from = "allow"            # From impls that can fail are intentional
+use_self = "allow"                      # Too noisy with generics
+unused_async_trait_impl = "allow"       # Trait signatures (tower-lsp, rmcp) require async fn without .await
+assert_is_empty = "allow"               # The assert_eq! form needs `[] as [T; 0]` for most collections
+
+# Process-spawn ban (method list lives in .clippy.toml). Allowed crate-wide,
+# the same as the fallow workspace. src/main.rs denies it again at the crate
+# root, and the workspace loader carries the one narrow expectation.
+disallowed_methods = "allow"
 
 # The dependency tree has duplicate versions that this crate cannot remove,
 # for example the windows-sys versions of clap and tempfile.
