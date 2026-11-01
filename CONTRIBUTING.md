@@ -40,8 +40,8 @@ hooks.
 | Gate | Command | Hook | CI |
 | --- | --- | --- | --- |
 | Format | `cargo fmt --all -- --check` | pre-commit, pre-push | `ci.yml` |
-| Clippy | `cargo clippy --all-targets --locked -- -D warnings` | pre-commit, pre-push | `ci.yml` |
-| Tests | `cargo nextest run --locked` or `cargo test --locked` | none | `ci.yml` |
+| Clippy | `cargo clippy --all-targets --locked -- -D warnings` | pre-commit, pre-push | `ci.yml`, Linux and Windows |
+| Tests | `cargo nextest run --locked` or `cargo test --locked` | none | `ci.yml`, Linux, macOS and Windows |
 | Documentation | `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --document-private-items` | pre-push | `ci.yml` |
 | Typos | `typos` | pre-commit | `ci.yml` |
 | Hidden unicode | `python3 scripts/scan-hidden-unicode.py --mode committed` | pre-commit | `ci.yml` |

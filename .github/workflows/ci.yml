@@ -53,6 +53,8 @@ jobs:
         with:
           components: rustfmt
       - run: cargo fmt --all -- --check
+      - name: Check for uncommitted changes
+        run: git diff --exit-code
 
   clippy:
     name: Clippy
@@ -79,6 +81,8 @@ jobs:
           components: clippy
       # The pedantic, nursery and restriction lints come from [lints] in Cargo.toml.
       - run: cargo clippy --all-targets --locked -- -D warnings
+      - name: Check for uncommitted changes
+        run: git diff --exit-code
 
   test:
     name: Test (${{ matrix.os }})
@@ -89,7 +93,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-26.04, macos-latest, windows-latest]
+        # The `windows` job below runs the tests on Windows.
+        os: [ubuntu-26.04, macos-latest]
     defaults:
       run:
         working-directory: cargo-fallow
@@ -122,6 +127,51 @@ jobs:
           path: cargo-fallow/target/nextest/ci/junit.xml
           if-no-files-found: ignore
           retention-days: 14
+      - name: Check for uncommitted changes
+        run: git diff --exit-code
+
+  # src/workspace.rs has `#[cfg(windows)]` code, so Clippy on Linux does not
+  # see all of it. The same pattern as the `windows-rust` job in fallow.
+  windows:
+    name: Windows path handling
+    runs-on: windows-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: cargo-fallow
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: cargo-fallow
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ env.FALLOW_REPOSITORY }}
+          ref: ${{ env.FALLOW_PROTOCOL_REF }}
+          path: fallow-report-protocol
+          persist-credentials: false
+      - uses: ./cargo-fallow/.github/actions/setup-rust
+        with:
+          components: clippy
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        with:
+          tool: cargo-nextest
+      - name: Run tests
+        run: cargo nextest run --profile ci --locked
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: nextest-junit-windows
+          path: cargo-fallow/target/nextest/ci/junit.xml
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Clippy platform-specific paths
+        run: cargo clippy --all-targets --locked -- -D warnings
+      - name: Check for uncommitted changes
+        run: git diff --exit-code
 
   doc:
     name: Documentation
@@ -148,6 +198,8 @@ jobs:
         env:
           RUSTDOCFLAGS: "-D warnings"
         run: cargo doc --no-deps --document-private-items
+      - name: Check for uncommitted changes
+        run: git diff --exit-code
 
   typos:
     name: Typos
@@ -266,6 +318,8 @@ jobs:
         with:
           tool: cargo-shear
       - run: cargo shear
+      - name: Check for uncommitted changes
+        run: git diff --exit-code
 
   zizmor:
     name: Actions Security
@@ -329,11 +383,13 @@ jobs:
           '
       - name: Check compilation
         run: cargo check --locked --offline
+      - name: Check for uncommitted changes
+        run: git diff --exit-code
 
   ci-ok:
     name: CI
     if: always()
-    needs: [fmt, clippy, test, doc, typos, scripts, audit, deny, shear, zizmor, msrv]
+    needs: [fmt, clippy, test, windows, doc, typos, scripts, audit, deny, shear, zizmor, msrv]
     runs-on: ubuntu-26.04
     timeout-minutes: 5
     permissions: {}
