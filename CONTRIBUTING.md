@@ -55,7 +55,7 @@ the hooks. Run `npm ci` once to install commitlint for the commit-msg hook.
 | MSRV | `cargo +1.97.0 check --locked` | none | `ci.yml` |
 | Commit messages | `commitlint` | commit-msg | `commitlint.yml` |
 | DCO sign-off | `node .github/scripts/check-dco.mjs` | commit-msg | `commitlint.yml` |
-| Line coverage | `cargo llvm-cov` | none | `coverage.yml`, report only |
+| Line coverage | `cargo llvm-cov` | none | `coverage.yml`, floor 92.0% (same as fallow) |
 | Visibility audit | `scripts/check-hawk.sh` | none | `hawk.yml`, weekly |
 
 A file over 2000 lines must not grow. Move new code to a new module.
