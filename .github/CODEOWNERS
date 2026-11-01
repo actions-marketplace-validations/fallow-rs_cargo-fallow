@@ -1,0 +1,16 @@
+# Agent-instruction files program how AI agents behave in this repository, and
+# workflows run with repository credentials. Edits to them require a review
+# from @BartWaardenburg through the "require review from Code Owners" rule on
+# main. The rules name these paths only (no blanket `*` owner), so an ordinary
+# contributor pull request needs no code-owner review. The pattern is the same
+# as in fallow.
+
+/CLAUDE.md          @BartWaardenburg
+/AGENTS.md          @BartWaardenburg
+/**/AGENTS.md       @BartWaardenburg
+/.agents/           @BartWaardenburg
+/.claude/           @BartWaardenburg
+/.codex/            @BartWaardenburg
+/.github/workflows/ @BartWaardenburg
+/.github/actions/   @BartWaardenburg
+/.github/CODEOWNERS @BartWaardenburg
