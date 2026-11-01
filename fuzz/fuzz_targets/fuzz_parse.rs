@@ -5,7 +5,7 @@
 
 use libfuzzer_sys::fuzz_target;
 
-// The module uses only std and syn, so the target includes the production
+// The module uses only std, ra_ap_parser and ra_ap_syntax, so the target includes the production
 // source and needs no public library API.
 #[path = "../../src/parse.rs"]
 mod parse;
@@ -14,5 +14,5 @@ fuzz_target!(|data: &[u8]| {
     let Ok(source) = std::str::from_utf8(data) else {
         return;
     };
-    let _ = parse::parse_source(source);
+    let _ = parse::parse_source(source, parse::Edition::Edition2024);
 });

@@ -16,8 +16,8 @@ env:
   CARGO_INCREMENTAL: '0'
   CARGO_TERM_COLOR: always
   HAWK_ARCHIVE: cargo-hawk-x86_64-unknown-linux-gnu.tar.gz
-  HAWK_SHA256: 027124444baddf7fa3597ce2d76d1eff48e95902be303beada2558e3687c1bff
-  HAWK_VERSION: 0.1.9
+  HAWK_SHA256: f5a76a43aa6be1e55e44f5eac13310193ba77729673799250065f1d201018016
+  HAWK_VERSION: 0.1.17
   # M0 only. See the same variables in ci.yml.
   FALLOW_REPOSITORY: fallow-rs/fallow
   FALLOW_PROTOCOL_REF: 5c1a640e1620b74aadc419a4c20c9ebbc8c98fe8
@@ -47,7 +47,7 @@ jobs:
 
       - uses: ./cargo-fallow/.github/actions/setup-rust
         with:
-          toolchain: '1.97.1'
+          toolchain: '1.99.0'
           cache-key: hawk
 
       - name: Install Hawk

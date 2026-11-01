@@ -12,8 +12,9 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
-# The same version and features as the syn entry in the root Cargo.toml.
-syn = { version = "3", default-features = false, features = ["full", "parsing"] }
+# The same versions as in the root Cargo.toml.
+ra_ap_parser = "=0.0.359"
+ra_ap_syntax = "=0.0.359"
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(fuzzing)'] }

@@ -342,13 +342,13 @@ jobs:
       - run: uvx zizmor@1.26.1 --min-confidence medium --format plain .github/
 
   msrv:
-    name: MSRV (1.97)
+    name: MSRV (1.98)
     runs-on: ubuntu-26.04
     timeout-minutes: 30
     permissions:
       contents: read
     env:
-      RUSTUP_TOOLCHAIN: 1.97.0
+      RUSTUP_TOOLCHAIN: 1.98.0
     defaults:
       run:
         working-directory: cargo-fallow
@@ -365,19 +365,16 @@ jobs:
           persist-credentials: false
       - uses: ./cargo-fallow/.github/actions/setup-rust
         with:
-          toolchain: '1.97.0'
+          toolchain: '1.98.0'
           cache-key: msrv
-      # Cargo 1.97.0 does not retry spurious registry HTTP errors. Fetch with
-      # patched Cargo, then keep the exact minimum compiler check offline.
-      - name: Fetch locked dependencies with patched Cargo
-        run: |
-          rustup toolchain install 1.97.1 --profile minimal --no-self-update
-          cargo +1.97.1 fetch --locked
+      # The minimum follows the parser crates, which require a recent compiler.
+      - name: Fetch locked dependencies
+        run: cargo fetch --locked
       # fallow checks only the packages that it publishes. This package has
       # `publish = false` until M4, so the check reads every package.
       - name: Verify crate MSRV metadata
         run: |
-          cargo metadata --no-deps --format-version 1 | jq -e --arg msrv "1.97" '
+          cargo metadata --no-deps --format-version 1 | jq -e --arg msrv "1.98" '
             [.packages[] | .rust_version]
             | length > 0 and all(. == $msrv)
           '

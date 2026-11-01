@@ -2,7 +2,7 @@
 
 `cargo fallow` is the Rust part of Fallow. It is a Cargo subcommand that
 analyzes a Cargo workspace. It uses `cargo metadata` and syntactic analysis
-with `syn`. It runs on stable Rust and needs no nightly toolchain.
+with `ra_ap_syntax`, the parser of rust-analyzer. It runs on stable Rust and needs no nightly toolchain.
 
 ## Status
 

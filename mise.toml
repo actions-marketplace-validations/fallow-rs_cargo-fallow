@@ -2,7 +2,7 @@
 # Contributors without mise can install each tool by hand at the version below.
 #
 # Rust is not pinned here. `rust-toolchain.toml` owns the Rust version through
-# rustup. The MSRV check uses toolchain 1.97.0, the Hawk audit 1.97.1 and the
+# rustup. The MSRV check uses toolchain 1.98.0, the Hawk audit 1.99.0 and the
 # fuzz smoke nightly-2026-07-20. Install them with rustup.
 #
 # Keep each version in lockstep with CI and with the mise.toml of fallow.
@@ -46,5 +46,5 @@ hk = "2.4.0"
 # hk evaluates `hk.pkl` with the pkl CLI.
 pkl = "0.32.1"
 
-# hawk.yml pins cargo-hawk 0.1.9 with a checksum. fallow does not pin it in
+# hawk.yml pins cargo-hawk 0.1.17 with a checksum. fallow does not pin it in
 # its mise.toml, so this file does not pin it either.

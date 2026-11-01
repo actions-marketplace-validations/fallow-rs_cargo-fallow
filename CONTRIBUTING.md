@@ -56,7 +56,7 @@ hooks.
 | Unused dependencies | `cargo shear` | pre-push | `ci.yml` |
 | Workflow syntax | `actionlint` | none | none |
 | Workflow security | `uvx zizmor@1.26.1 --min-confidence medium --format plain .github/` | none | `ci.yml` |
-| MSRV | `cargo +1.97.0 check --locked` | none | `ci.yml` |
+| MSRV | `cargo +1.98.0 check --locked` | none | `ci.yml` |
 | Commit messages | `commitlint` | commit-msg | `commitlint.yml` |
 | DCO sign-off | `node .github/scripts/check-dco.mjs` | commit-msg | `commitlint.yml` |
 | Line coverage | `cargo llvm-cov` | none | `coverage.yml`, floor 95.0% |
@@ -73,7 +73,7 @@ its configuration.
 them, or install each tool by hand at the version in that file. The tools
 are `typos`, `cargo-shear`, `cargo-deny`, `cargo-audit`,
 `cargo-nextest`, `cargo-llvm-cov`, `actionlint`, `zizmor`, Node.js 22 and
-Python 3. The Hawk audit needs `cargo hawk` 0.1.9 on toolchain 1.97.1.
+Python 3. The Hawk audit needs `cargo hawk` 0.1.17 on toolchain 1.99.0.
 
 ### Gates that this repository does not have yet
 

@@ -9,6 +9,14 @@ updates:
     cooldown:
       default-days: 7
     open-pull-requests-limit: 10
+    # The parser crates need an API check. `ra-ap-rustc_lexer` also fails to
+    # compile when the Unicode versions of these two crates differ, so they
+    # move together with the parser.
+    ignore:
+      - dependency-name: "ra_ap_*"
+      - dependency-name: "ra-ap-*"
+      - dependency-name: "unicode-ident"
+      - dependency-name: "unicode-properties"
 
   # The commitlint packages in package.json.
   - package-ecosystem: npm

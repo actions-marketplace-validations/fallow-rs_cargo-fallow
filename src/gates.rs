@@ -10,7 +10,7 @@ use fallow_report_protocol::{GateFile, GateFileReason, GateOutcome, GateStatus};
 use serde::Serialize;
 
 use crate::cli::Options;
-use crate::parse::{ParseOutcome, parse_source};
+use crate::parse::{Edition, ParseOutcome, parse_source};
 use crate::workspace::{self, Workspace};
 
 /// The rule severity that `error-severity-findings` counts.
@@ -101,18 +101,26 @@ pub fn evaluate(workspace: &Workspace, options: &Options) -> Evaluation {
 
 /// Parses the root file of each target.
 fn parse_error(workspace: &Workspace, enforced: bool) -> (GateOutcome, Vec<UnreadableFile>) {
-    let mut roots: Vec<&str> = workspace
+    let mut roots: Vec<(&str, &str)> = workspace
         .members
         .iter()
-        .flat_map(|member| member.targets.iter().map(|target| target.src_path.as_str()))
+        .flat_map(|member| {
+            member
+                .targets
+                .iter()
+                .map(|target| (target.src_path.as_str(), target.edition.as_str()))
+        })
         .collect();
     roots.sort_unstable();
-    roots.dedup();
+    roots.dedup_by_key(|root| root.0);
     let mut files = Vec::new();
     let mut unreadable = Vec::new();
-    for path in roots {
+    for (path, edition) in roots {
         match fs::read_to_string(workspace::absolute_path(&workspace.root, path)) {
-            Ok(source) => files.extend(gate_file(path, parse_source(&source))),
+            Ok(source) => files.extend(gate_file(
+                path,
+                parse_source(&source, parse_edition(edition)),
+            )),
             Err(err) => unreadable.push(UnreadableFile {
                 path: path.to_owned(),
                 error: err.to_string(),
@@ -127,16 +135,33 @@ fn parse_error(workspace: &Workspace, enforced: bool) -> (GateOutcome, Vec<Unrea
     (GateOutcome::with_files(status, enforced, files), unreadable)
 }
 
+/// The parser edition for the edition name in the Cargo metadata. A name that
+/// this version of the parser does not know gets its newest edition.
+fn parse_edition(name: &str) -> Edition {
+    match name {
+        "2015" => Edition::Edition2015,
+        "2018" => Edition::Edition2018,
+        "2021" => Edition::Edition2021,
+        "2024" => Edition::Edition2024,
+        _ => Edition::CURRENT,
+    }
+}
+
 /// The `parse-error` gate item of one file, or `None` when the gate does not
 /// count the file.
 fn gate_file(path: &str, parsed: ParseOutcome) -> Option<GateFile> {
     match parsed {
         ParseOutcome::Parsed => None,
-        // syn stops at the first error and does not recover, so the parse
-        // always stopped in the file.
+        // The parser recovers from an error and reads the whole file.
         ParseOutcome::Failed { error_count } => Some(GateFile {
             path: path.to_owned(),
             error_count,
+            panicked: false,
+            reason: None,
+        }),
+        ParseOutcome::Panicked => Some(GateFile {
+            path: path.to_owned(),
+            error_count: 1,
             panicked: true,
             reason: None,
         }),
@@ -198,6 +223,15 @@ mod tests {
             Some(GateFile {
                 path: "a.rs".to_owned(),
                 error_count: 2,
+                panicked: false,
+                reason: None,
+            })
+        );
+        assert_eq!(
+            gate_file("a.rs", ParseOutcome::Panicked),
+            Some(GateFile {
+                path: "a.rs".to_owned(),
+                error_count: 1,
                 panicked: true,
                 reason: None,
             })
@@ -211,6 +245,15 @@ mod tests {
                 reason: Some(GateFileReason::NestingTooDeep),
             })
         );
+    }
+
+    #[test]
+    fn edition_names_map_to_the_parser_editions() {
+        assert_eq!(parse_edition("2015"), Edition::Edition2015);
+        assert_eq!(parse_edition("2018"), Edition::Edition2018);
+        assert_eq!(parse_edition("2021"), Edition::Edition2021);
+        assert_eq!(parse_edition("2024"), Edition::Edition2024);
+        assert_eq!(parse_edition("2099"), Edition::CURRENT);
     }
 
     #[test]
