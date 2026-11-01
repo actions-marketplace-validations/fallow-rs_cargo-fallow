@@ -34,6 +34,11 @@ fn copy_dir(from: &Path, to: &Path) {
     fs::create_dir_all(to).expect("create the fixture directory");
     for entry in fs::read_dir(from).expect("read the fixture directory") {
         let entry = entry.expect("read a fixture entry");
+        // A local `cargo` run in a fixture leaves a build directory there.
+        // It is not part of the fixture.
+        if entry.file_name() == "target" {
+            continue;
+        }
         let target = to.join(entry.file_name());
         if entry.file_type().expect("read the entry type").is_dir() {
             copy_dir(&entry.path(), &target);
@@ -228,6 +233,8 @@ fn sarif_log_for_a_clean_workspace() {
     assert_eq!(run["tool"]["driver"]["version"], env!("CARGO_PKG_VERSION"));
     assert_eq!(run["tool"]["driver"]["rules"], Value::Array(Vec::new()));
     assert_eq!(run["results"], Value::Array(Vec::new()));
+    assert_eq!(run["invocations"][0]["executionSuccessful"], true);
+    assert!(run["invocations"][0]["toolExecutionNotifications"].is_null());
 }
 
 #[test]
@@ -280,6 +287,40 @@ fn enforced_parse_error_exits_1_in_human_and_sarif() {
     );
     assert_eq!(sarif.code, 1, "{}", sarif.stderr);
     assert_eq!(sarif.json()["version"], "2.1.0");
+}
+
+#[test]
+fn sarif_log_shows_each_file_of_a_failed_gate() {
+    let fixture = Fixture::new("ws-parse-error");
+    for (flags, level) in [
+        (&["--fail-on-parse-error"][..], "error"),
+        (&[][..], "warning"),
+    ] {
+        let mut args = vec!["--format", "sarif", "--quiet"];
+        args.extend_from_slice(flags);
+        let result = check(&fixture, &args);
+        let run = &result.json()["runs"][0];
+        assert_eq!(
+            run["results"],
+            serde_json::json!([{
+                "ruleId": "parse-error",
+                "level": level,
+                "message": { "text": "The file does not parse." },
+                "locations": [{
+                    "physicalLocation": {
+                        "artifactLocation": { "uri": "broken/src/lib.rs" }
+                    }
+                }]
+            }]),
+            "{flags:?}"
+        );
+        assert_eq!(run["tool"]["driver"]["rules"][0]["id"], "parse-error");
+        let invocation = &run["invocations"][0];
+        assert_eq!(invocation["executionSuccessful"], true);
+        let notification = &invocation["toolExecutionNotifications"][0];
+        assert_eq!(notification["level"], level);
+        assert_eq!(notification["descriptor"]["id"], "parse-error");
+    }
 }
 
 fn assert_json_error(result: &Run, code: &str) {

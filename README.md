@@ -54,7 +54,9 @@ dependencies, it does not use the network and it does not write `Cargo.lock`.
 - `json`: the report on stdout. The report has `schema_version`, `version`,
   `kind`, `language`, `workspace`, `total_issues`, `findings` and
   `gate_outcomes`.
-- `sarif`: a SARIF 2.1.0 log on stdout.
+- `sarif`: a SARIF 2.1.0 log on stdout. Each file of a failed gate is a
+  result, and each failed gate is a tool execution notification. The level
+  is `error` for an enforced failure and `warning` for other failures.
 
 The gates are `error-severity-findings` and `parse-error`. They use the same
 names as the gates of the JavaScript CLI. A gate fails the run when its
