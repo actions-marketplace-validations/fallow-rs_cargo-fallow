@@ -45,6 +45,9 @@ cargo test --locked
 cargo deny check
 ```
 
+The Quality gates section in `CONTRIBUTING.md` lists every gate.
+`hk run pre-commit --all` and `hk run pre-push --all` run the hook gates.
+
 ## Git
 
 - Sign commits with `git commit -S -s`. The `-s` flag adds the DCO sign-off.
