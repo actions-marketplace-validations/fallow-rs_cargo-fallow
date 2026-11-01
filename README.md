@@ -62,6 +62,10 @@ The gates are `error-severity-findings` and `parse-error`. They use the same
 names as the gates of the JavaScript CLI. A gate fails the run when its
 `status` is `fail` and `enforced` is `true`.
 
+A target root file that cannot be read as UTF-8 text is not a parse error.
+The tool writes a warning to stderr, and the `parse-error` gate does not
+judge the file. `--quiet` does not hide the warning.
+
 With `--format json`, an error goes to stdout as an error document:
 `{ "error": true, "message": "...", "exit_code": 2, "code": "..." }`. In the
 other formats, the error goes to stderr.

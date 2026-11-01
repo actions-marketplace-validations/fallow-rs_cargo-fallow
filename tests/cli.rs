@@ -25,6 +25,22 @@ impl Fixture {
         Self { dir }
     }
 
+    /// A single-package workspace with the given files. Each path is relative
+    /// to the workspace root.
+    fn package(files: &[(&str, &[u8])]) -> Self {
+        let dir = tempfile::tempdir().expect("create a temporary directory");
+        let manifest = "[package]\nname = \"single\"\nversion = \"0.1.0\"\nedition = \"2024\"\npublish = false\n\n[workspace]\n";
+        fs::write(dir.path().join("Cargo.toml"), manifest).expect("write the manifest");
+        for (path, bytes) in files {
+            let path = dir.path().join(path);
+            if let Some(parent) = path.parent() {
+                fs::create_dir_all(parent).expect("create the file directory");
+            }
+            fs::write(path, bytes).expect("write a fixture file");
+        }
+        Self { dir }
+    }
+
     fn manifest(&self) -> PathBuf {
         self.dir.path().join("Cargo.toml")
     }
@@ -321,6 +337,30 @@ fn sarif_log_shows_each_file_of_a_failed_gate() {
         assert_eq!(notification["level"], level);
         assert_eq!(notification["descriptor"]["id"], "parse-error");
     }
+}
+
+#[test]
+fn unreadable_root_file_is_a_warning_and_not_a_parse_error() {
+    // A source file that is not UTF-8 cannot be read as Rust source. The
+    // gate contract has no reason for such a file, so the gate does not
+    // judge it, the same as fallow with `source-read-failure`.
+    let fixture = Fixture::package(&[("src/lib.rs", &[0xff, 0xfe, 0x00])]);
+    let result = check(
+        &fixture,
+        &["--format", "json", "--quiet", "--fail-on-parse-error"],
+    );
+    assert_eq!(result.code, 0, "{}", result.stderr);
+    let gate = &result.json()["gate_outcomes"]["parse-error"];
+    assert_eq!(gate["status"], "pass");
+    assert_eq!(gate["observed"], 0.0);
+    assert!(gate["files"].is_null(), "{gate}");
+    assert!(
+        result.stderr.contains(
+            "warning: cannot read `src/lib.rs`, so the parse-error gate does not judge it:"
+        ),
+        "{}",
+        result.stderr
+    );
 }
 
 fn assert_json_error(result: &Run, code: &str) {

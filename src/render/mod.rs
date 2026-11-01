@@ -30,6 +30,12 @@ pub fn write_stderr(text: &str) -> io::Result<()> {
     ignore_broken_pipe(writeln!(io::stderr().lock(), "{text}"))
 }
 
+/// Writes `warning: <message>` to stderr. `--quiet` does not hide it.
+pub fn warn(message: &str) {
+    // A warning is optional. A failed write must not stop the run.
+    let _ = write_stderr(&format!("warning: {message}"));
+}
+
 fn ignore_broken_pipe(result: io::Result<()>) -> io::Result<()> {
     match result {
         Err(err) if err.kind() == io::ErrorKind::BrokenPipe => Ok(()),

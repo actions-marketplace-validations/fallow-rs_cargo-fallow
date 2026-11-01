@@ -52,7 +52,16 @@ fn check(options: &Options) -> Result<u8, CliError> {
     progress.step("Reading cargo metadata");
     let workspace = workspace::load(options.manifest_path.as_deref())?;
     progress.step("Parsing target root files");
-    let outcomes = gates::evaluate(&workspace, options);
+    let gates::Evaluation {
+        outcomes,
+        unreadable,
+    } = gates::evaluate(&workspace, options);
+    for file in &unreadable {
+        render::warn(&format!(
+            "cannot read `{}`, so the parse-error gate does not judge it: {}",
+            file.path, file.error
+        ));
+    }
     let fails = outcomes.fails_run();
     let report = report::CheckReport::new(workspace, outcomes);
     render::write_report(&report, options.format).map_err(|err| CliError::output(&err))?;
