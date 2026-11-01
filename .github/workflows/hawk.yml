@@ -20,7 +20,7 @@ env:
   HAWK_VERSION: 0.1.9
   # M0 only. See the same variables in ci.yml.
   FALLOW_REPOSITORY: fallow-rs/fallow
-  FALLOW_PROTOCOL_REF: f59bd722ddf45332a02bc3b912a70c854a64006c
+  FALLOW_PROTOCOL_REF: 5c1a640e1620b74aadc419a4c20c9ebbc8c98fe8
 
 jobs:
   audit:

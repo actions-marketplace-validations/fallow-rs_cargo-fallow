@@ -24,7 +24,7 @@ env:
   # commit into `fallow-report-protocol/`, so the relative path resolves.
   # Remove this when the crate is on crates.io.
   FALLOW_REPOSITORY: fallow-rs/fallow
-  FALLOW_PROTOCOL_REF: f59bd722ddf45332a02bc3b912a70c854a64006c
+  FALLOW_PROTOCOL_REF: 5c1a640e1620b74aadc419a4c20c9ebbc8c98fe8
 
 # fallow has a `changes` job that skips jobs when no input changed. This
 # repository is small, so each job runs on each event.
