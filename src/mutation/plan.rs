@@ -1,0 +1,278 @@
+//! Builds the list of mutants of one package.
+
+use std::ops::Range;
+
+use crate::mutation::coverage::LineRange;
+use crate::mutation::files::CrateFile;
+use crate::mutation::id::id_text;
+use crate::mutation::report::MutantRow;
+use crate::mutation::rewrites::{FileRewrites, Rewrite, find_rewrites, schema_sites};
+use crate::mutation::schema::mutated_text;
+use crate::mutation::sites::{Shape, Site};
+use crate::mutation::status::{Status, Tier};
+
+/// The longest text of the `original` field, in bytes.
+const ORIGINAL_LIMIT: usize = 120;
+
+/// One mutant with its row of the report.
+#[derive(Debug, Clone)]
+pub struct Planned {
+    /// The stable id.
+    pub id: u64,
+    /// The index of the file.
+    pub file: usize,
+    /// The range to replace in a rebuild.
+    pub range: Range<usize>,
+    /// The new text of the range in a rebuild.
+    pub text: String,
+    /// True when the mutant is in a constant context. A coverage map says nothing
+    /// about such code, because the compiler can evaluate it.
+    pub constant: bool,
+    /// The row of the report.
+    pub row: MutantRow,
+}
+
+/// Adds the rebuild mutants with a schema form to the schema sites of each file.
+/// Such a mutant then runs in the schema build. When it breaks that build, the
+/// removal loop moves it back to the rebuild tier.
+pub fn move_into_schema(files: &mut [CrateFile]) {
+    for file in files {
+        let Ok(found) = find_rewrites(&file.original, file.edition, &file.path) else {
+            continue;
+        };
+        file.found.sites.extend(schema_sites(&found.rewrites));
+        // Outer sites first. At one range, a site of a rebuild operator is the
+        // outer one, and the order of the other sites stays.
+        file.found.sites.sort_by_key(|site| {
+            (
+                site.range.start,
+                std::cmp::Reverse(site.range.end),
+                site.origin.is_none(),
+            )
+        });
+    }
+}
+
+/// Removes the rebuild mutants that [`move_into_schema`] put into the schema.
+pub fn keep_rebuild_only(rewrites: &mut [FileRewrites]) {
+    for file in rewrites {
+        file.rewrites.retain(|rewrite| rewrite.schema.is_none());
+    }
+}
+
+/// The rebuild mutants of each file.
+pub fn rewrites_of(files: &[CrateFile]) -> Vec<FileRewrites> {
+    files
+        .iter()
+        .map(|file| {
+            // The walk of the sites parsed this text, so an error here only
+            // leaves the file without rebuild mutants.
+            find_rewrites(&file.original, file.edition, &file.path).unwrap_or_default()
+        })
+        .collect()
+}
+
+/// The mutants of the schema tier, by file and offset.
+pub fn schema_mutants(files: &[CrateFile]) -> Vec<Planned> {
+    let mut planned = Vec::new();
+    for (index, file) in files.iter().enumerate() {
+        for site in &file.found.sites {
+            for mutant in &site.mutants {
+                // A mutant of a rebuild operator keeps the range and the text of its
+                // rewrite, so its row is the same in each tier, and a rebuild of it
+                // applies the same text.
+                let (range, text, replacement) = match &mutant.text {
+                    Some(text) => (site.report_range().clone(), text.clone(), text.as_str()),
+                    None => (
+                        site.range.clone(),
+                        mutated_text(&file.original, site, mutant),
+                        mutant.replacement,
+                    ),
+                };
+                planned.push(Planned {
+                    id: mutant.id,
+                    file: index,
+                    row: row(
+                        file,
+                        &RowInput {
+                            tier: Tier::Schema,
+                            id: mutant.id,
+                            operator: mutant.operator,
+                            range: &range,
+                            position: operator_position(&file.original, site),
+                            replacement,
+                            under_cfg: site.under_cfg,
+                        },
+                    ),
+                    range,
+                    text,
+                    constant: false,
+                });
+            }
+        }
+    }
+    planned
+}
+
+/// The mutants of the rebuild tier, by file and offset.
+pub fn rebuild_mutants(files: &[CrateFile], rewrites: &[FileRewrites]) -> Vec<Planned> {
+    let mut planned = Vec::new();
+    for (index, file) in files.iter().enumerate() {
+        for rewrite in &rewrites[index].rewrites {
+            planned.push(rebuild_mutant(file, index, rewrite));
+        }
+    }
+    planned
+}
+
+fn rebuild_mutant(file: &CrateFile, index: usize, rewrite: &Rewrite) -> Planned {
+    Planned {
+        id: rewrite.id,
+        file: index,
+        range: rewrite.range.clone(),
+        text: rewrite.replacement.clone(),
+        constant: rewrite.constant,
+        row: row(
+            file,
+            &RowInput {
+                tier: Tier::Rebuild,
+                id: rewrite.id,
+                operator: rewrite.operator,
+                range: &rewrite.range,
+                position: rewrite.range.start,
+                replacement: &rewrite.replacement,
+                under_cfg: rewrite.under_cfg,
+            },
+        ),
+    }
+}
+
+struct RowInput<'a> {
+    tier: Tier,
+    id: u64,
+    operator: &'static str,
+    range: &'a Range<usize>,
+    /// The offset that the report points at.
+    position: usize,
+    replacement: &'a str,
+    under_cfg: bool,
+}
+
+/// The offset of the operator of a binary site, else the start of the site. A chain
+/// such as `a && b && c` has some sites with one start, so only the operator tells
+/// them apart.
+fn operator_position(text: &str, site: &Site) -> usize {
+    match site.shape {
+        Shape::Binary { lhs_end, rhs_start } => {
+            let between = &text[lhs_end..rhs_start];
+            lhs_end + (between.len() - between.trim_start().len())
+        }
+        Shape::Condition | Shape::Splice { .. } | Shape::Block | Shape::ArmGuard { .. } => {
+            site.report_range().start
+        }
+    }
+}
+
+fn row(file: &CrateFile, input: &RowInput<'_>) -> MutantRow {
+    let (line, column) = line_and_column(&file.original, input.position);
+    MutantRow {
+        id: id_text(input.id),
+        tier: input.tier,
+        operator: input.operator,
+        file: file.path.clone(),
+        line,
+        column,
+        original: short_text(&file.original[input.range.clone()]),
+        replacement: input.replacement.to_owned(),
+        status: Status::Pending,
+        reason: None,
+        killed_by: None,
+        retried: false,
+        removed_from_schema: false,
+        under_cfg: file.under_cfg || input.under_cfg,
+        duration_ms: 0,
+        tests_run: 0,
+        doctests_run: 0,
+        no_line_data: false,
+        actions: Vec::new(),
+    }
+}
+
+/// The line and the byte column of an offset of the original text. The schema
+/// build can move code, so a report never reads a position from a build.
+fn line_and_column(text: &str, offset: usize) -> (usize, usize) {
+    let before = &text[..offset];
+    let line = before.matches('\n').count() + 1;
+    let column = offset - before.rfind('\n').map_or(0, |at| at + 1) + 1;
+    (line, column)
+}
+
+/// The first and the last line of a range of the original text.
+pub fn lines_of(text: &str, range: &Range<usize>) -> LineRange {
+    let (first, _) = line_and_column(text, range.start);
+    let (last, _) = line_and_column(text, range.end.saturating_sub(1).max(range.start));
+    let line = |value: usize| u32::try_from(value).unwrap_or(u32::MAX);
+    (line(first), line(last))
+}
+
+/// The text in one line of at most [`ORIGINAL_LIMIT`] bytes.
+fn short_text(text: &str) -> String {
+    let line = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let mut end = line.len().min(ORIGINAL_LIMIT);
+    while !line.is_char_boundary(end) {
+        end -= 1;
+    }
+    line[..end].to_owned()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_binary_site_points_at_its_operator() {
+        let text = "fn f(a: bool, b: bool, c: bool) -> bool {\n    a\n    && b\n    && c\n}\n";
+        let Ok(found) = crate::mutation::sites::find_sites(
+            text,
+            crate::parse::Edition::Edition2021,
+            "src/lib.rs",
+        ) else {
+            panic!("the source parses");
+        };
+        let places: Vec<(usize, usize)> = found
+            .sites
+            .iter()
+            .map(|site| line_and_column(text, operator_position(text, site)))
+            .collect();
+        assert_eq!(places, [(4, 5), (3, 5)]);
+    }
+
+    #[test]
+    fn line_and_column_start_at_one() {
+        assert_eq!(line_and_column("ab\ncd", 0), (1, 1));
+        assert_eq!(line_and_column("ab\ncd", 1), (1, 2));
+        assert_eq!(line_and_column("ab\ncd", 3), (2, 1));
+        assert_eq!(line_and_column("ab\ncd", 4), (2, 2));
+    }
+
+    #[test]
+    fn a_range_gives_its_first_and_last_line() {
+        let text = "a\nb c\nd\n";
+        assert_eq!(lines_of(text, &(0..1)), (1, 1));
+        assert_eq!(lines_of(text, &(2..5)), (2, 2));
+        assert_eq!(lines_of(text, &(2..7)), (2, 3));
+        // The newline at the end of a range is still on the line of the range.
+        assert_eq!(lines_of(text, &(2..6)), (2, 2));
+        assert_eq!(lines_of(text, &(2..2)), (2, 2));
+    }
+
+    #[test]
+    fn short_text_keeps_one_line_and_a_char_boundary() {
+        assert_eq!(short_text("a == b\n  && c"), "a == b && c");
+        assert_eq!(short_text(""), "");
+        let long = "é".repeat(100);
+        let short = short_text(&long);
+        assert!(short.len() <= ORIGINAL_LIMIT);
+        assert!(short.chars().all(|c| c == 'é'));
+    }
+}

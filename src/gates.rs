@@ -2,6 +2,8 @@
 //!
 //! The gate names use the same spelling as `GateName` in fallow. The two
 //! lists stay equal by convention until the protocol crate owns the names.
+//! `surviving-mutants` is the one exception: the JavaScript tool has no gate on
+//! mutation results.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -24,6 +26,8 @@ pub enum RustGateName {
     ErrorSeverityFindings,
     /// Fails when a target root file does not parse.
     ParseError,
+    /// Fails when a mutant survived the tests of a `mutants` run.
+    SurvivingMutants,
 }
 
 /// The gate outcomes of one run, sorted by gate name.
@@ -57,6 +61,7 @@ impl RustGateName {
         match self {
             Self::ErrorSeverityFindings => "error-severity-findings",
             Self::ParseError => "parse-error",
+            Self::SurvivingMutants => "surviving-mutants",
         }
     }
 }
@@ -137,7 +142,7 @@ fn parse_error(workspace: &Workspace, enforced: bool) -> (GateOutcome, Vec<Unrea
 
 /// The parser edition for the edition name in the Cargo metadata. A name that
 /// this version of the parser does not know gets its newest edition.
-fn parse_edition(name: &str) -> Edition {
+pub fn parse_edition(name: &str) -> Edition {
     match name {
         "2015" => Edition::Edition2015,
         "2018" => Edition::Edition2018,

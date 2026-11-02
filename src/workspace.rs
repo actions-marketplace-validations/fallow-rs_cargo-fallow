@@ -13,6 +13,8 @@ use crate::error::{CliError, ErrorCode};
 pub struct Workspace {
     /// The absolute workspace root. It is not part of the report.
     pub root: Utf8PathBuf,
+    /// The absolute target folder. It is not part of the report.
+    pub target_dir: Utf8PathBuf,
     /// The members, sorted by name.
     pub members: Vec<Member>,
 }
@@ -28,6 +30,9 @@ pub struct Member {
     pub manifest_path: String,
     /// The targets, sorted by kind and then by name.
     pub targets: Vec<Target>,
+    /// The names of the direct dependencies. They are not part of the report.
+    #[serde(skip)]
+    pub dependencies: Vec<String>,
 }
 
 /// One target of a member.
@@ -68,7 +73,11 @@ pub fn load(manifest_path: Option<&Path>) -> Result<Workspace, CliError> {
             .cmp(&b.name)
             .then_with(|| a.manifest_path.cmp(&b.manifest_path))
     });
-    Ok(Workspace { root, members })
+    Ok(Workspace {
+        root,
+        target_dir: metadata.target_directory,
+        members,
+    })
 }
 
 fn check_manifest(path: &Path) -> Result<(), CliError> {
@@ -124,6 +133,11 @@ fn member(root: &Utf8Path, package: &Package) -> Member {
         version: package.version.to_string(),
         manifest_path: relative_path(root, &package.manifest_path),
         targets,
+        dependencies: package
+            .dependencies
+            .iter()
+            .map(|dependency| dependency.name.clone())
+            .collect(),
     }
 }
 

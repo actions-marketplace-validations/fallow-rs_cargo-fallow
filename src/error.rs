@@ -19,6 +19,9 @@ pub enum ErrorCode {
     MetadataFailed,
     /// The report could not be written.
     OutputFailed,
+    /// The `mutants` command cannot run: the package does not build, the tests
+    /// fail with no mutant, or a file operation or a process failed.
+    MutationFailed,
 }
 
 impl ErrorCode {
@@ -29,6 +32,7 @@ impl ErrorCode {
             Self::ManifestNotFound => "CARGO_FALLOW_MANIFEST_NOT_FOUND",
             Self::MetadataFailed => "CARGO_FALLOW_METADATA_FAILED",
             Self::OutputFailed => "CARGO_FALLOW_OUTPUT_FAILED",
+            Self::MutationFailed => "CARGO_FALLOW_MUTATION_FAILED",
         }
     }
 }
