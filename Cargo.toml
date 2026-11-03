@@ -12,12 +12,12 @@ keywords = ["cargo", "cargo-subcommand", "static-analysis", "mutation-testing"]
 categories = ["development-tools::cargo-plugins"]
 # Remove at M4 launch.
 publish = false
-exclude = ["tests/fixtures", "fuzz"]
+exclude = ["tests/fixtures", "fuzz", "experimental"]
 
 # The fixtures and the fuzz crate have their own `[workspace]` tables. This
 # table keeps their manifests out of the root workspace.
 [workspace]
-exclude = ["tests/fixtures", "fuzz"]
+exclude = ["tests/fixtures", "fuzz", "experimental"]
 
 # The package installs only `cargo-fallow`. It never installs a binary named
 # `fallow`, because that name belongs to the JavaScript CLI.
@@ -35,6 +35,7 @@ serde_json = { version = "1", features = ["preserve_order"] }
 # each release. Update both on a fixed schedule, not through Dependabot.
 ra_ap_parser = "=0.0.359"
 ra_ap_syntax = "=0.0.359"
+rustc-hash = "2"
 tempfile = "3"
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
 
