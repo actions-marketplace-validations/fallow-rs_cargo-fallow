@@ -67,6 +67,8 @@ pub enum Parsed {
     Visibility(VisibilityOptions),
     /// Run the unused dependency check.
     Deps(crate::deps::Options),
+    /// Run one structure check: boundaries, size, complexity or dupes.
+    Structure(Box<crate::structure::Command>),
     /// Run the hidden watchdog of the memory guard.
     Watchdog {
         /// The file that lists the root of each process tree.
@@ -112,6 +114,8 @@ enum Command {
     /// for the module graph, and its output can change.
     #[command(hide = true)]
     Visibility(VisibilityArgs),
+    #[command(flatten)]
+    Structure(crate::structure::Command),
     /// Kill the test processes when the parent process dies. The memory guard
     /// starts this command.
     #[command(hide = true, name = "mutation-watchdog")]
@@ -407,6 +411,7 @@ pub fn parse(args: &[OsString]) -> Parsed {
             Some(Command::Mutants(args)) => Parsed::Mutants(Box::new(args.into())),
             Some(Command::Visibility(args)) => Parsed::Visibility(args.into()),
             Some(Command::Deps(args)) => Parsed::Deps(args.into()),
+            Some(Command::Structure(command)) => Parsed::Structure(Box::new(command)),
             Some(Command::MutationWatchdog {
                 roots,
                 sweep,
