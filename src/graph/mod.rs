@@ -150,6 +150,9 @@ pub struct Module {
     pub path: Vec<String>,
     /// The `mod` item that declares the module. The root has none.
     pub item: Option<ItemId>,
+    /// True when an inner attribute of the module file allows the `dead_code`
+    /// lint.
+    pub allow_dead: bool,
 }
 
 /// One item.
@@ -173,6 +176,8 @@ pub struct Item {
     pub column: u32,
     /// The one-based last line.
     pub end_line: u32,
+    /// The written visibility keyword, when the item has one.
+    pub vis_span: Option<crate::graph::extract::Span>,
     /// The enclosing item.
     pub parent: Option<ItemId>,
     /// The self type path of an `impl` block.
@@ -223,6 +228,9 @@ pub struct Ref {
     pub origin: Origin,
     /// True in test code.
     pub test_only: bool,
+    /// True when a `cfg` that can be off in a build with all features and
+    /// tests is on the code or on a module declaration of its file.
+    pub under_cfg: bool,
 }
 
 /// The workspace module graph.
@@ -257,6 +265,7 @@ struct ParsedFile {
     path: String,
     module_path: Vec<String>,
     under_cfg: bool,
+    cfg_off: bool,
     facts: FileFacts,
 }
 
@@ -302,6 +311,7 @@ pub fn build(workspace: &Workspace, production: &Production) -> Graph {
             parent: None,
             path: Vec::new(),
             item: None,
+            allow_dead: false,
         });
         graph.crates.push(Crate {
             package: member.name.clone(),
@@ -384,6 +394,7 @@ fn parse_target(root: &Path, target: &Target) -> CrateFiles {
                 path: visit.path.clone(),
                 module_path: visit.module_path.clone(),
                 under_cfg: visit.under_cfg,
+                cfg_off: visit.cfg_off,
                 facts,
             },
             modules,
@@ -475,6 +486,10 @@ fn add_files(graph: &mut Graph, root: &Path, krate: CrateId, files: CrateFiles, 
     for file in files.files {
         graph.files += 1;
         let base = file.module_path.clone();
+        if file.facts.allow_dead {
+            let module = module_id(graph, &mut by_path, &base);
+            graph.modules[module].allow_dead = true;
+        }
         let mut ids = Vec::with_capacity(file.facts.items.len());
         for raw in &file.facts.items {
             let mut path = base.clone();
@@ -499,6 +514,7 @@ fn add_files(graph: &mut Graph, root: &Path, krate: CrateId, files: CrateFiles, 
                 line: raw.line,
                 column: raw.column,
                 end_line: raw.end_line,
+                vis_span: raw.vis_span,
                 parent: None,
                 impl_self: raw.impl_self.clone(),
                 impl_trait: raw.impl_trait.is_some(),
@@ -519,7 +535,7 @@ fn add_files(graph: &mut Graph, root: &Path, krate: CrateId, files: CrateFiles, 
                 krate,
                 module,
                 vis: raw.vis,
-                path: raw.path,
+                path: raw.path.into_iter().map(unraw).collect(),
                 global: raw.global,
                 binding: raw.binding,
                 item: raw.item.map(|index| ids[index]),
@@ -553,11 +569,44 @@ fn add_files(graph: &mut Graph, root: &Path, krate: CrateId, files: CrateFiles, 
                 krate,
                 module,
                 owner: raw.owner.map(|index| ids[index]),
-                kind: raw.kind,
+                kind: unraw_kind(raw.kind),
                 origin: raw.origin,
                 test_only: raw.test_only,
+                under_cfg: raw.under_cfg || file.cfg_off,
             });
         }
+    }
+}
+
+/// The name without the `r#` prefix of a raw identifier. The items have their
+/// names in this form.
+fn unraw(name: String) -> String {
+    match name.strip_prefix("r#") {
+        Some(plain) => plain.to_owned(),
+        None => name,
+    }
+}
+
+fn unraw_kind(kind: RefKind) -> RefKind {
+    let all = |segments: Vec<String>| segments.into_iter().map(unraw).collect();
+    match kind {
+        RefKind::Path { segments, global } => RefKind::Path {
+            segments: all(segments),
+            global,
+        },
+        RefKind::Method(name) => RefKind::Method(unraw(name)),
+        RefKind::Field(name) => RefKind::Field(unraw(name)),
+        RefKind::RecordField {
+            segments,
+            global,
+            field,
+        } => RefKind::RecordField {
+            segments: all(segments),
+            global,
+            field: unraw(field),
+        },
+        RefKind::Macro(name) => RefKind::Macro(unraw(name)),
+        RefKind::Member(name) => RefKind::Member(unraw(name)),
     }
 }
 
@@ -589,6 +638,7 @@ fn module_id(
         parent: Some(parent),
         path: path.to_vec(),
         item: None,
+        allow_dead: false,
     });
     by_path.insert(path.to_vec(), id);
     id
@@ -643,6 +693,7 @@ fn included_code(
                 kind,
                 origin,
                 test_only: test_only || site.test_only,
+                under_cfg: site.under_cfg,
             }
         };
         for import in facts.uses {

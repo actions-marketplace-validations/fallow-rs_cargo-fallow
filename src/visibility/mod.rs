@@ -1,5 +1,4 @@
-//! The visibility check on the module graph. This is an experiment for the M2
-//! gap measurement, not a stable command.
+//! The visibility check on the module graph.
 //!
 //! The model is the closed-world model of hawk: the workspace is the only user
 //! of its libraries, unless a library is excluded.
@@ -15,11 +14,15 @@
 //! holds the findings that only an untyped credit stops: a method call, a field
 //! access, or a name in macro tokens, in an attribute or in a doc code block.
 
+pub mod config;
+pub mod precise;
 pub mod report;
+
+use std::path::PathBuf;
 
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use crate::graph::extract::{Binding, ItemKind, Origin, Vis};
+use crate::graph::extract::{Binding, ItemFlags, ItemKind, Origin, RefKind, Vis};
 use crate::graph::resolve::{Class, Credit, Resolver};
 use crate::graph::{CrateKind, Graph, ItemId, ModuleId};
 
@@ -31,6 +34,8 @@ pub struct Options {
     /// True when the fields of a struct with one written visibility change as
     /// a group, as hawk's `preserve-uniform-field-visibility`.
     pub uniform_fields: bool,
+    /// The workspace root, for the files of the build scripts.
+    pub root: PathBuf,
 }
 
 /// The kind of a finding.
@@ -53,6 +58,17 @@ impl FindingKind {
             Self::UnnecessaryRestricted => "unnecessary_restricted_visibility",
         }
     }
+
+    /// The kind with this report name.
+    pub fn from_label(label: &str) -> Option<Self> {
+        [
+            Self::DeadPublic,
+            Self::UnnecessaryPublic,
+            Self::UnnecessaryRestricted,
+        ]
+        .into_iter()
+        .find(|kind| kind.label() == label)
+    }
 }
 
 /// One finding.
@@ -67,12 +83,36 @@ pub struct Finding {
 }
 
 /// The result of the check.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Analysis {
     /// The findings, sorted by item.
     pub findings: Vec<Finding>,
     /// The findings that only untyped credits stop.
     pub undecided: Vec<Finding>,
+    /// The items with a use in code under a `cfg` other than a test condition.
+    /// rust-analyzer does not see such code when the condition is off, so
+    /// `--precise` mode does not decide these items. Sorted.
+    pub cfg_used: Vec<ItemId>,
+    /// The undecided candidates that code the graph cannot read can use: the
+    /// output of an `include!` with a path that is not a literal, for example
+    /// a file in `OUT_DIR`. rust-analyzer does not search those files either,
+    /// so `--precise` mode does not decide these candidates. Sorted.
+    pub opaque: Vec<Finding>,
+}
+
+impl Analysis {
+    /// Keeps only the findings and candidates of these kinds. An empty list
+    /// keeps each kind.
+    pub fn retain_kinds(&mut self, kinds: &[FindingKind]) {
+        if kinds.is_empty() {
+            return;
+        }
+        self.findings
+            .retain(|finding| kinds.contains(&finding.kind));
+        self.undecided
+            .retain(|finding| kinds.contains(&finding.kind));
+        self.opaque.retain(|finding| kinds.contains(&finding.kind));
+    }
 }
 
 /// Runs the check.
@@ -94,10 +134,105 @@ pub fn analyze(graph: &Graph, options: &Options) -> Analysis {
         .into_iter()
         .filter(|finding| !known.contains(&(finding.item, finding.kind)))
         .collect();
-    Analysis {
+    let mut cfg_used: Vec<ItemId> = credits
+        .iter()
+        .filter(|credit| credit.under_cfg)
+        .map(|credit| credit.item)
+        .collect();
+    cfg_used.sort_unstable();
+    cfg_used.dedup();
+    let mut analysis = Analysis {
         findings,
         undecided,
+        cfg_used,
+        opaque: Vec::new(),
+    };
+    hold_opaque(graph, options, &mut analysis);
+    analysis
+}
+
+/// How far code that the graph cannot read reaches into a crate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Reach {
+    /// The code can name each `pub` item of the crate.
+    Public,
+    /// The code is in the crate, so it can name each item.
+    All,
+}
+
+/// The crates that code from an `include!` with a path that the graph cannot
+/// read can name. The code is in the crate of the call, so that crate is open
+/// for each kind. The code can name the `pub` items of each dependency. When
+/// the package has a build script, the generated code can name only the crates
+/// that the build script text names as `name::`, as in the `deps` check.
+fn opaque_crates(graph: &Graph, options: &Options) -> FxHashMap<usize, Reach> {
+    let including: FxHashSet<usize> = graph
+        .refs
+        .iter()
+        .filter(|reference| matches!(&reference.kind, RefKind::Macro(name) if name == "include"))
+        .map(|reference| reference.krate)
+        .collect();
+    let mut open = FxHashMap::default();
+    if including.is_empty() {
+        return open;
     }
+    let generated = crate::deps::usage::build_script_names(graph, &options.root);
+    for krate in including {
+        open.insert(krate, Reach::All);
+        let entry = &graph.crates[krate];
+        let names = generated.get(&entry.package);
+        for dependency in &entry.externs {
+            let Some(target) = dependency.target else {
+                continue;
+            };
+            if names.is_none_or(|names| names.contains(&dependency.name)) {
+                open.entry(target).or_insert(Reach::Public);
+            }
+        }
+    }
+    open
+}
+
+/// Moves each finding that code the graph cannot read can make wrong to the
+/// undecided list, and records those candidates in [`Analysis::opaque`].
+fn hold_opaque(graph: &Graph, options: &Options, analysis: &mut Analysis) {
+    let open = opaque_crates(graph, options);
+    if open.is_empty() {
+        return;
+    }
+    let is_opaque = |finding: &Finding| match open.get(&graph.items[finding.item].krate) {
+        Some(Reach::All) => true,
+        Some(Reach::Public) => finding.kind != FindingKind::UnnecessaryRestricted,
+        None => false,
+    };
+    let (held, kept): (Vec<Finding>, Vec<Finding>) = analysis
+        .findings
+        .drain(..)
+        .partition(|finding| is_opaque(finding));
+    analysis.findings = kept;
+    analysis.undecided.extend(held);
+    analysis.undecided.sort();
+    analysis.undecided.dedup();
+    analysis.opaque = analysis
+        .undecided
+        .iter()
+        .copied()
+        .filter(|finding| is_opaque(finding))
+        .collect();
+}
+
+/// Runs the filters that keep each reported change valid alone, again, after
+/// `--precise` mode added findings: a re-export before its target, field
+/// groups, and files in more than one crate.
+pub fn refine(graph: &Graph, options: &Options, analysis: &mut Analysis) {
+    let resolver = Resolver::new(graph);
+    let surface = Surface::new(graph, &resolver, options);
+    wait_for_reexports(graph, &surface, &mut analysis.findings);
+    if options.uniform_fields {
+        keep_field_groups(graph, &surface, &mut analysis.findings);
+    }
+    keep_shared_files(graph, &mut analysis.findings);
+    analysis.findings.sort();
 }
 
 /// The exported surface of the libraries.
@@ -117,6 +252,13 @@ struct Surface {
     types: FxHashMap<(usize, String), Vec<ItemId>>,
     /// The result of [`Surface::exported`] for each item.
     exported: Vec<bool>,
+    /// True for each item that an attribute macro covers: on the item, on an
+    /// enclosing item or on an enclosing module. The output of the macro can
+    /// use the item from any place, and the macro can need its visibility.
+    macro_covered: Vec<bool>,
+    /// True for each item that an `allow(dead_code)` covers, also through an
+    /// enclosing item or module.
+    dead_allowed: Vec<bool>,
 }
 
 impl Surface {
@@ -143,6 +285,8 @@ impl Surface {
             excluded,
             types: FxHashMap::default(),
             exported: Vec::new(),
+            macro_covered: Vec::new(),
+            dead_allowed: Vec::new(),
         };
         for (id, entry) in graph.items.iter().enumerate() {
             let is_type = matches!(
@@ -167,6 +311,9 @@ impl Surface {
         surface.exported = (0..graph.items.len())
             .map(|item| surface.compute_exported(graph, item))
             .collect();
+        surface.macro_covered = inherited(graph, |flags| flags.attr_macro, |_| false);
+        surface.dead_allowed =
+            inherited(graph, |flags| flags.allow_dead, |module| module.allow_dead);
         surface
     }
 
@@ -274,7 +421,7 @@ impl Surface {
             return false;
         }
         if entry.flags.macro_export
-            || entry.flags.attr_macro
+            || self.macro_covered[item]
             || matches!(entry.kind, ItemKind::Impl | ItemKind::Macro)
         {
             return false;
@@ -321,7 +468,7 @@ fn decide(
         if credit.origin == Origin::Signature
             && let Some(owner) = credit.owner
             && owner != credit.item
-            && graph.items[owner].vis != Vis::Private
+            && signature_visible(graph, owner)
         {
             entry.exposed = true;
         }
@@ -331,11 +478,19 @@ fn decide(
         if credit.krate != target.krate || credit.origin == Origin::Doc || from_macro_export {
             entry.cross_crate = true;
         } else if credit.owner != Some(credit.item) {
-            entry.from_modules.push(credit.module);
+            // A `macro_rules!` body expands at each call site, in any module.
+            let in_macro = credit
+                .owner
+                .is_some_and(|owner| graph.items[owner].kind == ItemKind::Macro);
+            entry.from_modules.push(if in_macro {
+                graph.crates[credit.krate].root_module
+            } else {
+                credit.module
+            });
         }
     }
     let required = required_items(graph, surface, &credits, &uses);
-    let (production, any) = live_items(graph, &credits);
+    let (production, any) = live_items(graph, surface, &credits);
     let live_modules = modules_with_live_items(graph, &any);
     let mut findings = Vec::new();
     for (item, entry) in graph.items.iter().enumerate() {
@@ -369,7 +524,9 @@ fn decide(
         let excluded = surface.excluded.contains(&entry.krate);
         if !excluded
             && restricted_candidate(entry)
+            && !surface.macro_covered[item]
             && !uses[item].exposed
+            && !uses[item].cross_crate
             && only_own_module(graph, item, &uses[item])
         {
             findings.push(Finding {
@@ -379,11 +536,38 @@ fn decide(
             });
         }
     }
+    wait_for_reexports(graph, surface, &mut findings);
     if options.uniform_fields {
-        keep_field_groups(graph, &mut findings);
+        keep_field_groups(graph, surface, &mut findings);
     }
+    keep_shared_files(graph, &mut findings);
     findings.sort();
     findings
+}
+
+/// True when the signature of `owner` has a visibility wider than private. An
+/// item of a trait impl and an enum variant have no keyword, but the compiler
+/// checks their signatures against the type, the trait and the enum.
+fn signature_visible(graph: &Graph, owner: ItemId) -> bool {
+    let mut current = Some(owner);
+    while let Some(id) = current {
+        let entry = &graph.items[id];
+        if entry.flags.trait_impl {
+            return true;
+        }
+        match entry.kind {
+            // A trait item has the visibility of its trait.
+            _ if entry.flags.trait_item => {}
+            ItemKind::Variant => {}
+            ItemKind::Field
+                if entry
+                    .parent
+                    .is_some_and(|parent| graph.items[parent].kind == ItemKind::Variant) => {}
+            _ => return entry.vis != Vis::Private,
+        }
+        current = entry.parent;
+    }
+    false
 }
 
 fn restricted_candidate(entry: &crate::graph::Item) -> bool {
@@ -438,6 +622,11 @@ fn required_items(
     for credit in credits {
         if let (Some(owner), Origin::Signature) = (credit.owner, credit.origin) {
             signature.entry(owner).or_default().push(credit.item);
+            // A field of a variant is as visible as its enum, so a required
+            // enum needs the types of its variant fields.
+            if let Some(enumeration) = variant_enum(graph, owner) {
+                signature.entry(enumeration).or_default().push(credit.item);
+            }
         }
     }
     let mut required: FxHashSet<ItemId> = FxHashSet::default();
@@ -468,6 +657,19 @@ fn required_items(
     required
 }
 
+/// The enum of a variant field, or `None` for another item.
+fn variant_enum(graph: &Graph, field: ItemId) -> Option<ItemId> {
+    let entry = &graph.items[field];
+    if entry.kind != ItemKind::Field {
+        return None;
+    }
+    let variant = entry.parent?;
+    if graph.items[variant].kind != ItemKind::Variant {
+        return None;
+    }
+    graph.items[variant].parent
+}
+
 impl Surface {
     /// The exported items of the excluded crates. They are an external API.
     fn excluded_surface(&self, graph: &Graph) -> Vec<ItemId> {
@@ -480,7 +682,11 @@ impl Surface {
 
 /// The items that a production root reaches, and the items that any root
 /// reaches.
-fn live_items(graph: &Graph, credits: &[&Credit]) -> (FxHashSet<ItemId>, FxHashSet<ItemId>) {
+fn live_items(
+    graph: &Graph,
+    surface: &Surface,
+    credits: &[&Credit],
+) -> (FxHashSet<ItemId>, FxHashSet<ItemId>) {
     let mut edges: FxHashMap<ItemId, Vec<(ItemId, bool)>> = FxHashMap::default();
     let mut production_roots = Vec::new();
     let mut other_roots = Vec::new();
@@ -505,14 +711,21 @@ fn live_items(graph: &Graph, credits: &[&Credit]) -> (FxHashSet<ItemId>, FxHashS
             && entry.module == krate.root_module;
         let derived_field = entry.kind == ItemKind::Field
             && entry.parent.is_some_and(|parent| derived(graph, parent));
+        // A derive outside the standard library, for example `Deserialize`,
+        // can construct each variant.
+        let derived_variant = entry.kind == ItemKind::Variant
+            && entry
+                .parent
+                .is_some_and(|parent| graph.items[parent].flags.helper_derive);
         if (main && krate.production)
             || entry.flags.external
-            || entry.flags.allow_dead
+            || surface.dead_allowed[item]
             || entry.flags.trait_impl
             || entry.flags.trait_item
             || entry.flags.proc_macro
-            || entry.flags.attr_macro
+            || surface.macro_covered[item]
             || derived_field
+            || derived_variant
         {
             production_roots.push(item);
         } else if main || entry.flags.test_fn {
@@ -524,6 +737,56 @@ fn live_items(graph: &Graph, credits: &[&Credit]) -> (FxHashSet<ItemId>, FxHashS
     all_roots.extend(other_roots);
     let any = reach(&edges, all_roots.into_iter(), true);
     (production, any)
+}
+
+/// A flag of each item that an enclosing item or module passes on: the item
+/// has it when the item, an enclosing item, the `mod` item of an enclosing
+/// module, or an enclosing module itself has it.
+fn inherited(
+    graph: &Graph,
+    item_flag: impl Fn(&ItemFlags) -> bool,
+    module_flag: impl Fn(&crate::graph::Module) -> bool,
+) -> Vec<bool> {
+    let mut modules: Vec<Option<bool>> = vec![None; graph.modules.len()];
+    let mut module_has = |start: ModuleId| -> bool {
+        let mut chain = Vec::new();
+        let mut current = Some(start);
+        let mut found = false;
+        while let Some(id) = current {
+            if let Some(known) = modules[id] {
+                found = known;
+                break;
+            }
+            let module = &graph.modules[id];
+            if module_flag(module)
+                || module
+                    .item
+                    .is_some_and(|item| item_flag(&graph.items[item].flags))
+            {
+                found = true;
+                chain.push(id);
+                break;
+            }
+            chain.push(id);
+            current = module.parent;
+        }
+        for id in chain {
+            modules[id] = Some(found);
+        }
+        found
+    };
+    (0..graph.items.len())
+        .map(|item| {
+            let mut current = Some(item);
+            while let Some(id) = current {
+                if item_flag(&graph.items[id].flags) {
+                    return true;
+                }
+                current = graph.items[id].parent;
+            }
+            module_has(graph.items[item].module)
+        })
+        .collect()
 }
 
 fn derived(graph: &Graph, item: ItemId) -> bool {
@@ -564,10 +827,94 @@ fn reach(
     seen
 }
 
+/// A `pub use` of an item needs the item to stay `pub`. When the re-export has
+/// a public finding, the item gets no public finding in this run, so each
+/// reported change compiles alone. The next run reports the item.
+fn wait_for_reexports(graph: &Graph, surface: &Surface, findings: &mut Vec<Finding>) {
+    let public = |kind: FindingKind| kind != FindingKind::UnnecessaryRestricted;
+    let waiting: FxHashSet<ItemId> = findings
+        .iter()
+        .filter(|finding| public(finding.kind) && graph.items[finding.item].kind == ItemKind::Use)
+        .filter_map(|finding| surface.reexport_targets.get(&finding.item))
+        .flatten()
+        .copied()
+        .collect();
+    findings.retain(|finding| !(public(finding.kind) && waiting.contains(&finding.item)));
+}
+
+/// A file can be in more than one crate, for example a `mod data;` in each
+/// bench target. A change of a keyword holds for each of those crates, so a
+/// restricted finding needs the same finding in each crate that holds the
+/// item. A public finding needs a public finding in each library that holds
+/// it, and the weaker kind wins.
+fn keep_shared_files(graph: &Graph, findings: &mut Vec<Finding>) {
+    type Place<'a> = (&'a str, u32, u32);
+    let place = |item: ItemId| -> Place<'_> {
+        let entry = &graph.items[item];
+        (entry.file.as_str(), entry.line, entry.column)
+    };
+    let mut instances: FxHashMap<Place<'_>, Vec<ItemId>> = FxHashMap::default();
+    for (id, entry) in graph.items.iter().enumerate() {
+        if entry.kind != ItemKind::Impl {
+            instances.entry(place(id)).or_default().push(id);
+        }
+    }
+    let by_item: FxHashMap<ItemId, Vec<FindingKind>> =
+        findings
+            .iter()
+            .fold(FxHashMap::default(), |mut map, finding| {
+                map.entry(finding.item).or_default().push(finding.kind);
+                map
+            });
+    let has = |item: ItemId, test: &dyn Fn(FindingKind) -> bool| {
+        by_item
+            .get(&item)
+            .is_some_and(|kinds| kinds.iter().any(|kind| test(*kind)))
+    };
+    let mut weaker: FxHashSet<ItemId> = FxHashSet::default();
+    findings.retain(|finding| {
+        let Some(others) = instances.get(&place(finding.item)) else {
+            return true;
+        };
+        if others.len() < 2 {
+            return true;
+        }
+        match finding.kind {
+            FindingKind::UnnecessaryRestricted => others
+                .iter()
+                .all(|&other| has(other, &|kind| kind == FindingKind::UnnecessaryRestricted)),
+            FindingKind::DeadPublic | FindingKind::UnnecessaryPublic => {
+                let libraries: Vec<ItemId> = others
+                    .iter()
+                    .copied()
+                    .filter(|&other| graph.crates[graph.items[other].krate].kind.is_library())
+                    .collect();
+                let all_public = libraries
+                    .iter()
+                    .all(|&other| has(other, &|kind| kind != FindingKind::UnnecessaryRestricted));
+                if all_public
+                    && finding.kind == FindingKind::DeadPublic
+                    && libraries
+                        .iter()
+                        .any(|&other| has(other, &|kind| kind == FindingKind::UnnecessaryPublic))
+                {
+                    weaker.insert(finding.item);
+                }
+                all_public
+            }
+        }
+    });
+    for finding in findings.iter_mut() {
+        if weaker.contains(&finding.item) {
+            finding.kind = FindingKind::UnnecessaryPublic;
+        }
+    }
+}
+
 /// With uniform field groups, the fields of one struct with one written
 /// visibility change together. When one field must keep its visibility, the
 /// other fields of the group keep it too.
-fn keep_field_groups(graph: &Graph, findings: &mut Vec<Finding>) {
+fn keep_field_groups(graph: &Graph, surface: &Surface, findings: &mut Vec<Finding>) {
     let mut groups: FxHashMap<ItemId, Vec<ItemId>> = FxHashMap::default();
     for (item, entry) in graph.items.iter().enumerate() {
         if entry.kind == ItemKind::Field
@@ -599,7 +946,7 @@ fn keep_field_groups(graph: &Graph, findings: &mut Vec<Finding>) {
             .all(|field| reduced.contains(field) || dead.contains(field));
         let any_cfg = fields
             .iter()
-            .any(|field| graph.items[*field].under_cfg || graph.items[*field].flags.allow_dead);
+            .any(|field| graph.items[*field].under_cfg || surface.dead_allowed[*field]);
         if !all_reduced || any_cfg {
             blocked.extend(fields.iter().copied());
         }

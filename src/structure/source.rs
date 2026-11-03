@@ -354,6 +354,7 @@ fn collect_declarations(
             inline_path: inline.clone(),
             path_attr: module.attrs().find_map(|attr| path_attribute(&attr)),
             under_cfg: false,
+            cfg_off: false,
         });
     }
 }

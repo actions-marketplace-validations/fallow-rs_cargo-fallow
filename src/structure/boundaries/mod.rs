@@ -730,6 +730,7 @@ impl PathScan<'_> {
                     .attrs()
                     .find_map(|attr| crate::attrs::path_attribute(&attr)),
                 under_cfg: false,
+                cfg_off: false,
             });
             return;
         };
