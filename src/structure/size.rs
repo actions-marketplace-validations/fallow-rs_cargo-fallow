@@ -428,7 +428,9 @@ fn human(report: &Report<Summary, Finding>) -> String {
                 let _ = writeln!(text, "  {}", finding.message);
             }
         }
-        None => text.push_str("Growth rule: not run. Add `--base <ref>` or `--staged`.\n"),
+        None => text.push_str(
+            "Growth rule: not run. Run `cargo fallow size --base <ref>` or `cargo fallow size --staged`.\n",
+        ),
     }
     hotspots(
         &mut text,

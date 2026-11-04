@@ -102,6 +102,12 @@ GitHub release. Each release needs a `## [X.Y.Z] - YYYY-MM-DD` section.
 
 ### Fixed
 
+- The human output of `check` ends with the gates that fail and a next step.
+  The gate block lists files only for the `parse-error` gate. The size
+  section names `cargo fallow size --base <ref>`, a command that runs, and
+  the dupes section no longer says "No clones found" when a baseline hides
+  each clone group. `fix`, `init` and `explain` list only `human` and `json`
+  in the help of `--format`.
 - `fix` honors the rules table: a rule at `off` gets no edit. `fix` takes
   `--package` (`-p`) to keep only the edits of the named members. When the
   workspace does not build before the edits, the help names the next step.
