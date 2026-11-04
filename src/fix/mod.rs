@@ -10,6 +10,7 @@
 //! --all-targets`, before and after the edits. When a step after the edits
 //! fails, the command writes back the old bytes of each file and exits 2.
 
+pub mod check;
 pub mod deps;
 pub mod visibility;
 
@@ -20,6 +21,7 @@ use std::path::{Path, PathBuf};
 
 use clap::Args;
 use fallow_report_protocol::exit_code::EXIT_OK;
+use rustc_hash::FxHashMap;
 use serde::Serialize;
 
 use crate::cli::{Format, VisibilityOptions};
@@ -293,12 +295,15 @@ fn apply_all(
     // `cargo check` can write `Cargo.lock`, so a failed run writes back its
     // old bytes too.
     let lock = LockFile::read(root);
-    let all_features = if compiles {
+    let (all_features, known) = if compiles {
         progress.step("Checking that the workspace builds before the edits");
-        Some(baseline(manifest, root, &args.cargo_flags(true)).inspect_err(|_| lock.restore())?)
+        let (all, warnings) =
+            baseline(manifest, root, &args.cargo_flags(true)).inspect_err(|_| lock.restore())?;
+        (Some(all), warnings)
     } else {
-        None
+        (None, Vec::new())
     };
+    let formatted = formatted_files(workspace, &plan.visibility);
     let mut kept = plan.visibility.clone();
     for round in 1..=CHECK_ROUNDS {
         let mut planned = Vec::new();
@@ -310,6 +315,7 @@ fn apply_all(
         }
         progress.step("Writing the edits");
         let mut compiler = None;
+        let mut warned: Vec<check::Diagnostic> = Vec::new();
         let outcome = write_and_check(&planned, || {
             if !plan.deps.is_empty() {
                 workspace::load_resolved(manifest, &flags).map_err(|err| {
@@ -321,7 +327,7 @@ fn apply_all(
             }
             if let Some(all_features) = all_features {
                 progress.step("Checking that the workspace builds after the edits");
-                workspace::cargo_check(manifest, root, &flags, all_features).map_err(
+                let after = workspace::cargo_check(manifest, root, &flags, all_features).map_err(
                     |message| {
                         let text = format!(
                             "the workspace does not build after the edits: {}",
@@ -331,19 +337,30 @@ fn apply_all(
                         text
                     },
                 )?;
+                warned = check::new_warnings(&known, &after)
+                    .into_iter()
+                    .cloned()
+                    .collect();
+                if !warned.is_empty() {
+                    let lines: Vec<String> = warned.iter().map(check::Diagnostic::line).collect();
+                    return Err(format!(
+                        "the edits add compiler warnings: {}",
+                        first_lines(&lines.join("\n"))
+                    ));
+                }
             }
             Ok(())
         });
         let Err(error) = outcome else {
+            format_files(workspace, &planned, &formatted);
             return Ok(kept);
         };
         // The compiler names the items that the edits broke. Each round
         // leaves out the edits of those items, and the next round starts from
         // the old bytes again.
         let before = kept.len();
-        if let Some(message) = compiler.filter(|_| round < CHECK_ROUNDS) {
-            let names = visibility::named_items(&message);
-            kept.retain(|edit| !names.contains(visibility::last_segment(&edit.item)));
+        if round < CHECK_ROUNDS {
+            leave_out(&mut kept, compiler.as_deref(), &warned);
         }
         if kept.len() == before || (kept.is_empty() && plan.deps.is_empty()) {
             lock.restore();
@@ -353,6 +370,25 @@ fn apply_all(
     }
     lock.restore();
     Err(failed("the workspace does not build after the edits"))
+}
+
+/// Leaves out the edits of the items that the compiler errors or the new
+/// warnings name. A warning names an item of its own file. A
+/// `private_interfaces` or `private_bounds` warning names the type of another
+/// file too.
+fn leave_out(kept: &mut Vec<visibility::Edit>, errors: Option<&str>, warned: &[check::Diagnostic]) {
+    if let Some(message) = errors {
+        let names = visibility::named_items(message);
+        kept.retain(|edit| !names.contains(visibility::last_segment(&edit.item)));
+    }
+    for warning in warned {
+        let names = visibility::named_items(&warning.message);
+        let any_file = warning.code.starts_with("private_");
+        kept.retain(|edit| {
+            !(names.contains(visibility::last_segment(&edit.item))
+                && (any_file || edit.path == warning.file))
+        });
+    }
 }
 
 /// The most write and check rounds. A round after a failed `cargo check`
@@ -372,13 +408,18 @@ fn first_lines(message: &str) -> String {
 }
 
 /// Checks that the workspace builds before the edits, with all features when
-/// it can, as the analysis reads it. Returns true for an all-features build.
-fn baseline(manifest: Option<&Path>, root: &Path, flags: &[String]) -> Result<bool, CliError> {
-    if workspace::cargo_check(manifest, root, flags, true).is_ok() {
-        return Ok(true);
+/// it can, as the analysis reads it. Returns true for an all-features build,
+/// and the warnings of the build.
+fn baseline(
+    manifest: Option<&Path>,
+    root: &Path,
+    flags: &[String],
+) -> Result<(bool, Vec<check::Diagnostic>), CliError> {
+    if let Ok(warnings) = workspace::cargo_check(manifest, root, flags, true) {
+        return Ok((true, warnings));
     }
     workspace::cargo_check(manifest, root, flags, false)
-        .map(|()| false)
+        .map(|warnings| (false, warnings))
         .map_err(|message| {
             failed(&format!(
                 "the workspace does not build before the edits, so `fix` cannot judge them: \
@@ -390,6 +431,64 @@ fn baseline(manifest: Option<&Path>, root: &Path, flags: &[String]) -> Result<bo
                  `cargo fallow fix --dry-run` and make the edits by hand.",
             )
         })
+}
+
+/// The edition of the package for `rustfmt`.
+fn edition_of(workspace: &Workspace, package: &str) -> String {
+    workspace
+        .members
+        .iter()
+        .find(|member| member.name == package)
+        .and_then(|member| member.targets.first())
+        .map_or_else(|| "2021".to_owned(), |target| target.edition.clone())
+}
+
+/// The files of the visibility edits that `rustfmt` formats to the same text
+/// before the edits, with their edition. Only these files get formatted after
+/// the edits, so `fix` does not format a file that the workspace keeps
+/// unformatted.
+fn formatted_files(
+    workspace: &Workspace,
+    edits: &[visibility::Edit],
+) -> FxHashMap<PathBuf, String> {
+    let root = workspace.root.as_std_path();
+    let mut files = FxHashMap::default();
+    for (path, edits) in visibility::by_file(edits) {
+        let full = root.join(path);
+        let Ok(text) = fs::read_to_string(&full) else {
+            continue;
+        };
+        let edition = edits.first().map_or_else(
+            || "2021".to_owned(),
+            |edit| edition_of(workspace, &edit.package),
+        );
+        let folder = full.parent().unwrap_or(root);
+        if workspace::rustfmt(&text, &edition, folder).is_some_and(|out| out == text) {
+            files.insert(full, edition);
+        }
+    }
+    files
+}
+
+/// Formats each written file that `rustfmt` formatted before the edits. A
+/// failure keeps the edited text.
+fn format_files(
+    workspace: &Workspace,
+    planned: &[Planned],
+    formatted: &FxHashMap<PathBuf, String>,
+) {
+    let root = workspace.root.as_std_path();
+    for (path, _, new) in planned {
+        let Some(edition) = formatted.get(path) else {
+            continue;
+        };
+        let folder = path.parent().unwrap_or(root);
+        if let Some(out) = workspace::rustfmt(new, edition, folder)
+            && out != *new
+        {
+            let _ = replace(path, out.as_bytes());
+        }
+    }
 }
 
 /// The `Cargo.lock` of the workspace before the run.
@@ -552,5 +651,65 @@ fn line(fix: &Fix) -> String {
                 fix.kind, fix.item, fix.from, fix.path, fix.line
             )
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::visibility::report::{CHANGE_ACTION, Range};
+
+    fn edit(item: &str, path: &str) -> visibility::Edit {
+        visibility::Edit {
+            kind: CHANGE_ACTION,
+            rule: "unnecessary-public",
+            package: "app".to_owned(),
+            item: item.to_owned(),
+            path: path.to_owned(),
+            line: 1,
+            column: 1,
+            from: "pub".to_owned(),
+            to: "pub(crate)".to_owned(),
+            item_kind: "function",
+            applied: false,
+            range: Range {
+                line: 1,
+                column: 1,
+                end_line: 1,
+                end_column: 4,
+            },
+        }
+    }
+
+    fn warning(code: &str, message: &str, file: &str) -> check::Diagnostic {
+        check::Diagnostic {
+            error: false,
+            code: code.to_owned(),
+            message: message.to_owned(),
+            file: file.to_owned(),
+            line: 1,
+            column: 1,
+        }
+    }
+
+    #[test]
+    fn a_warning_leaves_out_only_the_edits_of_its_file_or_of_a_private_type() {
+        let mut kept = vec![
+            edit("a::x", "src/a.rs"),
+            edit("b::x", "src/b.rs"),
+            edit("c::Data", "src/c.rs"),
+            edit("c::other", "src/c.rs"),
+        ];
+        let warned = [
+            warning("unused_variables", "unused variable: `x`", "src/a.rs"),
+            warning(
+                "private_interfaces",
+                "type `Data` is more private than the item `run`",
+                "src/a.rs",
+            ),
+        ];
+        leave_out(&mut kept, None, &warned);
+        let items: Vec<&str> = kept.iter().map(|edit| edit.item.as_str()).collect();
+        assert_eq!(items, ["b::x", "c::other"]);
     }
 }
