@@ -70,6 +70,9 @@ A `threshold` in the table puts the `duplication-threshold` gate in the
 report. The gate fails the run only with `--threshold`, or with
 `--fail-on-issues` for `check`, the same as each other gate.
 
+`cargo fallow dupes --trace <FINGERPRINT>` shows the instances of one clone
+group. See [Trace](trace.md).
+
 The `size` growth rule is the rule of `scripts/check-file-size.mjs` in fallow,
 for `.rs` files: a file over the limit must not grow, and a new file must not be
 over it. Test files, test and snapshot folders, and files with a generator header
