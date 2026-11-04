@@ -11,6 +11,11 @@ GitHub release. Each release needs a `## [X.Y.Z] - YYYY-MM-DD` section.
 
 ### Added
 
+- `cargo fallow init` prints the configuration tables with the limits at the
+  current maximum, and saves the current findings as a baseline. `--write`
+  adds them to the root `Cargo.toml`. `--ci github` prints a workflow. The
+  `baseline` key of `[workspace.metadata.fallow]` names the baseline of each
+  run.
 - `cargo fallow explain <rule>` gives the meaning, an example and the fix of a
   rule, also as JSON. `--explain` adds `_meta` with the rules of the findings
   to the JSON report of `check` and of each static command.

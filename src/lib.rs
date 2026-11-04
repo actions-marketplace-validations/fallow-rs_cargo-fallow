@@ -22,6 +22,7 @@ mod fix;
 mod gates;
 mod graph;
 mod health;
+mod init;
 mod modules;
 mod mutation;
 mod parse;
@@ -55,6 +56,10 @@ pub fn run(args: Vec<OsString>) -> ExitCode {
         Parsed::Run(options) => check::run(&options),
         Parsed::Mutants(options) => run_mutants(&options),
         Parsed::Deps(options) => run_deps(&options),
+        Parsed::Init(args) => init::run(&args).unwrap_or_else(|err| {
+            err.emit(args.format());
+            EXIT_INVALID_INPUT
+        }),
         Parsed::Explain(args) => explain::run(&args).unwrap_or_else(|err| {
             err.emit(args.format());
             EXIT_INVALID_INPUT
