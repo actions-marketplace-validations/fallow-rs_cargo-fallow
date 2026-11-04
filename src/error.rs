@@ -101,7 +101,8 @@ impl CliError {
             | Format::Sarif
             | Format::Codeclimate
             | Format::Compact
-            | Format::Markdown => self.emit_text(),
+            | Format::Markdown
+            | Format::Badge => self.emit_text(),
             Format::GithubSummary => self.emit_summary(),
             Format::GithubAnnotations => self.emit_annotation(),
         };

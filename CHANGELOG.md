@@ -11,6 +11,8 @@ GitHub release. Each release needs a `## [X.Y.Z] - YYYY-MM-DD` section.
 
 ### Added
 
+- `cargo fallow check --format badge` writes an SVG badge with the health
+  grade, or a `no score` badge for a run with no score.
 - The GitHub Action has the inputs `changed-since`, `auto-changed-since`,
   `baseline` and `save-baseline`, and `comment` posts or updates one sticky
   pull request comment with the gates and the findings.

@@ -235,9 +235,11 @@ impl CheckReport {
                 },
                 render::github::path_prefix(),
             ),
+            Format::Badge => render::badge::health(self.health.as_ref()),
         };
         render::write_report(text.trim_end()).map_err(|err| CliError::output(&err))?;
-        Ok(if self.fails_run() {
+        // A badge job uploads the badge, so a failed gate does not stop it.
+        Ok(if self.fails_run() && format != Format::Badge {
             EXIT_GATE_FAILED
         } else {
             EXIT_OK

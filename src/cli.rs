@@ -36,6 +36,9 @@ pub enum Format {
     GithubAnnotations,
     /// A GitHub job summary in markdown: the gate table and the findings.
     GithubSummary,
+    /// A flat SVG badge with the health grade. Only `check` gives it, and it
+    /// exits 0 also when a gate fails.
+    Badge,
 }
 
 /// The options of the `visibility` command.

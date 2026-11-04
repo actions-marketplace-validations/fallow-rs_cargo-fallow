@@ -155,10 +155,11 @@ pub fn run(args: &FixArgs) -> Result<u8, CliError> {
             | Format::Markdown
             | Format::GithubAnnotations
             | Format::GithubSummary
+            | Format::Badge
     ) {
         return Err(CliError::new(
             ErrorCode::InvalidArgument,
-            "`fix` has no SARIF, CodeClimate, compact, markdown or GitHub output",
+            "`fix` has no SARIF, CodeClimate, compact, markdown, GitHub or badge output",
         )
         .with_help("Use `--format human` or `--format json`."));
     }
