@@ -92,7 +92,17 @@ fi
 EOF
 chmod +x "$BIN/cargo-fallow" "$BIN/curl"
 BASE_PATH="$BIN:/usr/bin:/bin"
-ln -s "$(command -v jq)" "$BIN/jq"
+if [ -n "${CI_TEST_JQ_CRLF:-}" ]; then
+  # jq on Windows ends each output line with CRLF. In this run, each script
+  # gets such a jq, and each assertion must still pass. The awk program is
+  # literal text.
+  # shellcheck disable=SC2016
+  printf '#!/usr/bin/env bash\nset -o pipefail\n"%s" "$@" | awk '"'"'{ printf "%%s\\r\\n", $0 }'"'"'\n' \
+    "$(command -v jq)" > "$BIN/jq"
+  chmod +x "$BIN/jq"
+else
+  ln -s "$(command -v jq)" "$BIN/jq"
+fi
 
 reset() {
   STUB_LOG="$WORK/stub.log"
@@ -334,9 +344,21 @@ assert_contains "$(cat "$SCRIPTS/run.sh")" "CARGO_FALLOW_CODE_QUALITY_FILE:=gl-c
 assert_not_contains "$(cat "$TEMPLATE")" "$(printf '\t')" "the template has no tab"
 assert_contains "$(cat "$TEMPLATE")" 'CARGO_FALLOW_REF: ""' "the template downloads no script of an unpinned ref by default"
 
+# A second run gives each script a jq that writes CRLF, as jq on Windows does.
+CRLF_FAILED=0
+if [ -z "${CI_TEST_JQ_CRLF:-}" ]; then
+  echo
+  echo "Again with CRLF jq output:"
+  CI_TEST_JQ_CRLF=1 bash "$0" || CRLF_FAILED=1
+fi
+
 echo
 echo "${PASSED} passed, ${FAILED} failed"
 if [ "$FAILED" -gt 0 ]; then
   printf '  %s\n' "${FAILURES[@]}"
+  exit 1
+fi
+if [ "$CRLF_FAILED" -ne 0 ]; then
+  echo "The run with CRLF jq output failed."
   exit 1
 fi

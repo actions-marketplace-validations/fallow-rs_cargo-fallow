@@ -46,7 +46,15 @@ line_count() {
 # A PATH with jq and the base tools, without cargo, cargo-fallow and gh.
 TOOLS="$WORK/tools"
 mkdir -p "$TOOLS"
-ln -s "$(command -v jq)" "$TOOLS/jq"
+if [ -n "${ACTION_TEST_JQ_CRLF:-}" ]; then
+  # jq on Windows ends each output line with CRLF. In this run, each script
+  # gets such a jq, and each assertion must still pass.
+  printf '#!/usr/bin/env bash\nset -o pipefail\n"%s" "$@" | awk '"'"'{ printf "%%s\\r\\n", $0 }'"'"'\n' \
+    "$(command -v jq)" > "$TOOLS/jq"
+  chmod +x "$TOOLS/jq"
+else
+  ln -s "$(command -v jq)" "$TOOLS/jq"
+fi
 # install.sh checks the release signature with node.
 if command -v node > /dev/null 2>&1; then ln -s "$(command -v node)" "$TOOLS/node"; fi
 BASE_PATH="$TOOLS:/usr/bin:/bin"
@@ -643,18 +651,20 @@ assert_contains "$OUT" "pull request from a fork" "a fork pull request explains 
 # --- annotate.sh, summary.sh and gate.sh -------------------------------------
 
 echo "annotate.sh, summary.sh and gate.sh"
-OUT="$(ACTION_JQ_DIR="$JQ_DIR" SARIF_FILE="$FIXTURES/complexity.sarif" MAX_ANNOTATIONS=2 bash "$SCRIPTS/annotate.sh" 2>&1)"
+OUT="$(PATH="$BASE_PATH" ACTION_JQ_DIR="$JQ_DIR" SARIF_FILE="$FIXTURES/complexity.sarif" MAX_ANNOTATIONS=2 bash "$SCRIPTS/annotate.sh" 2>&1)"
 assert_equals "$(printf '%s\n' "$OUT" | grep -c '^::warning file=')" "2" "annotate: the cap limits the annotations"
 assert_contains "$OUT" "::notice::cargo-fallow wrote 2 of 3 findings as annotations, errors first." "annotate: the cap gives a notice"
-OUT="$(ACTION_JQ_DIR="$JQ_DIR" SARIF_FILE="" MAX_ANNOTATIONS=2 bash "$SCRIPTS/annotate.sh" 2>&1)"
+assert_not_contains "$OUT" $'\r' "annotate: no line keeps a CR"
+OUT="$(PATH="$BASE_PATH" ACTION_JQ_DIR="$JQ_DIR" SARIF_FILE="" MAX_ANNOTATIONS=2 bash "$SCRIPTS/annotate.sh" 2>&1)"
 assert_contains "$OUT" "No SARIF log, so no annotations." "annotate: no SARIF log"
-OUT="$(ACTION_JQ_DIR="$JQ_DIR" SARIF_FILE="$FIXTURES/complexity.sarif" MAX_ANNOTATIONS=x bash "$SCRIPTS/annotate.sh" 2>&1)"
+OUT="$(PATH="$BASE_PATH" ACTION_JQ_DIR="$JQ_DIR" SARIF_FILE="$FIXTURES/complexity.sarif" MAX_ANNOTATIONS=x bash "$SCRIPTS/annotate.sh" 2>&1)"
 assert_contains "$OUT" "Invalid 'max-annotations' input" "annotate: a bad cap fails"
 
-OUT="$(ACTION_JQ_DIR="$JQ_DIR" RESULTS_FILE="$FIXTURES/error.json" SARIF_FILE="" FALLOW_COMMAND=check EXIT_CODE=2 MAX_FINDINGS=50 \
+OUT="$(PATH="$BASE_PATH" ACTION_JQ_DIR="$JQ_DIR" RESULTS_FILE="$FIXTURES/error.json" SARIF_FILE="" FALLOW_COMMAND=check EXIT_CODE=2 MAX_FINDINGS=50 \
   GITHUB_STEP_SUMMARY=/dev/stdout bash "$SCRIPTS/summary.sh" 2>&1)"
 assert_contains "$OUT" "### cargo fallow check" "summary: an error document with no SARIF log"
-OUT="$(ACTION_JQ_DIR="$JQ_DIR" RESULTS_FILE="$FIXTURES/dupes-missing.json" FALLOW_COMMAND=dupes EXIT_CODE=2 MAX_FINDINGS=50 \
+assert_not_contains "$OUT" $'\r' "summary: no line keeps a CR"
+OUT="$(PATH="$BASE_PATH" ACTION_JQ_DIR="$JQ_DIR" RESULTS_FILE="$FIXTURES/dupes-missing.json" FALLOW_COMMAND=dupes EXIT_CODE=2 MAX_FINDINGS=50 \
   bash "$SCRIPTS/summary.sh" 2>&1)"
 assert_contains "$OUT" "No JSON report, so no job summary." "summary: no report file"
 
@@ -832,8 +842,20 @@ run_analyze INPUT_COMMAND=mutants STUB_JSON="$FIXTURES/mutants.json" INPUT_CHANG
 assert_equals "$(call_args 1)" "mutants --fail-on-issues --format json " "scope: mutants ignores changed-since"
 assert_contains "$OUT" "The mutants run ignores them" "scope: mutants explains the ignored input"
 
+# A second run gives each script a jq that writes CRLF, as jq on Windows does.
+CRLF_FAILED=0
+if [ -z "${ACTION_TEST_JQ_CRLF:-}" ]; then
+  echo
+  echo "Again with CRLF jq output:"
+  ACTION_TEST_JQ_CRLF=1 bash "$0" || CRLF_FAILED=1
+fi
+
 echo "${PASSED} passed, ${FAILED} failed"
 if [ "$FAILED" -gt 0 ]; then
   printf '  %s\n' "${FAILURES[@]}"
+  exit 1
+fi
+if [ "$CRLF_FAILED" -ne 0 ]; then
+  echo "The run with CRLF jq output failed."
   exit 1
 fi
