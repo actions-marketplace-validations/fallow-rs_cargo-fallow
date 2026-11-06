@@ -402,7 +402,7 @@ fn doc_refs_at(markdown: &str, edition: Edition, line: u32) -> Vec<RawRef> {
 }
 
 fn doc_ref(path: TokenPath, line: u32) -> Vec<RawRef> {
-    token_ref_kinds(path)
+    token_ref_kinds(path, false)
         .into_iter()
         .map(|kind| RawRef {
             inline: Vec::new(),
@@ -419,9 +419,38 @@ fn doc_ref(path: TokenPath, line: u32) -> Vec<RawRef> {
         .collect()
 }
 
+/// Prepares a token path in the output of a proc-macro. Returns `None` for a
+/// name that the output defines. Otherwise returns whether the path is
+/// output, and a method reference for `#ty::name`.
+fn output_path(path: &mut TokenPath, quoted: bool) -> Option<(bool, Option<RefKind>)> {
+    let in_output = quoted || path.quoted;
+    if in_output && path.defined {
+        return None;
+    }
+    let after_head = in_output && path.interpolated && path.segments.len() > 1;
+    if !after_head {
+        return Some((in_output && !path.interpolated, None));
+    }
+    // In `#krate::name`, only `krate` is a variable of the code that builds
+    // the tokens. The rest of the path is output.
+    path.segments.remove(0);
+    path.global = false;
+    // The head of `#ty::name` can be a type, so `name` can be an associated
+    // function or a method.
+    let method = match path.segments.as_slice() {
+        [name] => Some(RefKind::Method(name.clone())),
+        _ => None,
+    };
+    Some((true, method))
+}
+
 /// The references of one token path: the path, and a member reference for a
 /// name that can be a field or a method.
-fn token_ref_kinds(path: TokenPath) -> Vec<RefKind> {
+///
+/// In the output tokens of a proc-macro (`output` true), a name in a
+/// `::{..}` group, as in `use a::{b, c}`, is no member. A method call
+/// `.name(..)` gives a method reference, not a member reference.
+fn token_ref_kinds(path: TokenPath, output: bool) -> Vec<RefKind> {
     if let (Some(record), Some(field)) = (path.record, path.segments.first()) {
         return vec![
             RefKind::Path {
@@ -435,11 +464,17 @@ fn token_ref_kinds(path: TokenPath) -> Vec<RefKind> {
             },
         ];
     }
-    let member = path
-        .member
+    let call = output && path.call;
+    let member = (path.member && !(output && path.grouped))
         .then(|| path.segments.first().cloned())
         .flatten()
-        .map(RefKind::Member);
+        .map(|name| {
+            if call {
+                RefKind::Method(name)
+            } else {
+                RefKind::Member(name)
+            }
+        });
     let mut kinds = vec![RefKind::Path {
         segments: path.segments,
         global: path.global,
@@ -1326,8 +1361,10 @@ impl<'a> Walker<'a> {
                 segments.extend(path.segments.into_iter().skip(1));
                 path.segments = segments;
             }
-            let output = (quoted || path.quoted) && !path.interpolated;
-            for kind in token_ref_kinds(path) {
+            let Some((output, method)) = output_path(&mut path, quoted) else {
+                continue;
+            };
+            for kind in token_ref_kinds(path, output).into_iter().chain(method) {
                 self.add_ref(kind, origin);
                 if let Some(reference) = self.facts.refs.last_mut() {
                     reference.output = output;
