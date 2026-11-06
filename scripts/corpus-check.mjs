@@ -17,7 +17,11 @@ const USAGE = `Usage: node scripts/corpus-check.mjs --verdicts <file> --results 
   --results <dir>    A folder with <workspace>.json, the output of
                      \`cargo fallow check --format json\` in each workspace.
   --write            Add each new finding with the verdict "baseline", and
-                     remove each finding that the run no longer reports.`;
+                     remove each finding that the run no longer reports.
+
+The folder can also hold <workspace>.internal.json, the output of the run with
+each library internal. Its findings that the default run does not report are
+judged against the \`internal\` verdicts of the workspace.`;
 
 /** The findings of a check report that the verdict file judges, keyed by id. */
 export const judgedFindings = (report, checks) => {
@@ -97,9 +101,16 @@ export const validate = (file) => {
     if (typeof workspace.repository !== "string") {
       problems.push(`${name}: \`repository\` must be a URL`);
     }
-    for (const [id, entry] of Object.entries(workspace.findings ?? {})) {
-      if (!VERDICTS.has(entry.verdict)) {
-        problems.push(`${name}: ${id} has the unknown verdict \`${entry.verdict}\``);
+    for (const { key } of RUNS) {
+      const map = workspace[key];
+      if (map !== undefined && (typeof map !== "object" || map === null || Array.isArray(map))) {
+        problems.push(`${name}: \`${key}\` must be an object`);
+        continue;
+      }
+      for (const [id, entry] of Object.entries(map ?? {})) {
+        if (!VERDICTS.has(entry.verdict)) {
+          problems.push(`${name}: ${id} has the unknown verdict \`${entry.verdict}\``);
+        }
       }
     }
   }
@@ -118,6 +129,75 @@ const baselineEntry = (finding) => ({
   verdict: "baseline",
 });
 
+/**
+ * The runs of each workspace: the default run, and a run where each library is
+ * internal (`public-crates = []`). In the default run, the API of a library
+ * that a registry can publish is an entry point, so the visibility rules
+ * report almost nothing in such a library. The internal run checks them there.
+ */
+export const RUNS = Object.freeze([
+  { key: "findings", suffix: "", label: "", optional: false },
+  { key: "internal", suffix: ".internal", label: " (internal)", optional: true },
+]);
+
+/**
+ * Judges one result file against its verdicts, without the ids in `skip`.
+ * Returns `broken` when the result cannot be judged, the judged ids, the count
+ * of new findings, and the verdicts that `--write` keeps.
+ */
+const judgeRun = ({ name, resultPath, verdicts, checks, skip = new Set(), write, log }) => {
+  if (!existsSync(resultPath)) {
+    log(`error: ${name}: no result file ${resultPath}`);
+    return { broken: true };
+  }
+  const report = readJson(resultPath, log);
+  const reportIssues =
+    report === null ? ["the result is not JSON"] : reportProblems(report, checks);
+  if (reportIssues.length > 0) {
+    for (const problem of reportIssues) {
+      log(`error: ${name}: ${problem}`);
+    }
+    return { broken: true };
+  }
+  const found = judgedFindings(report, checks);
+  for (const id of skip) {
+    found.delete(id);
+  }
+  const { added, removed, knownFalse } = compare(found, verdicts);
+  for (const finding of added) {
+    log(
+      `error: ${name}: new finding ${finding.id} ${finding.check}/${finding.rule} at ${place(finding)}: ${finding.message}`,
+    );
+  }
+  for (const finding of removed) {
+    log(
+      `note: ${name}: ${finding.id} ${finding.check}/${finding.rule} at ${place(finding)} is gone`,
+    );
+  }
+  for (const finding of knownFalse) {
+    log(`note: ${name}: known false positive ${finding.id} at ${place(finding)}`);
+  }
+  log(
+    `${name}: ${found.size} findings, ${added.length} new, ${removed.length} gone, ${knownFalse.length} known false positives`,
+  );
+  if (!write) {
+    return { broken: false, ids: new Set(found.keys()), added: added.length };
+  }
+  const kept = { ...verdicts };
+  for (const finding of added) {
+    kept[finding.id] = baselineEntry(finding);
+  }
+  for (const finding of removed) {
+    delete kept[finding.id];
+  }
+  return {
+    broken: false,
+    ids: new Set(found.keys()),
+    added: added.length,
+    verdicts: Object.fromEntries(Object.entries(kept).toSorted(([a], [b]) => a.localeCompare(b))),
+  };
+};
+
 /** Runs the check and returns the exit code. */
 export const run = ({ verdictsPath, resultsDir, write, log = console.log }) => {
   const file = readJson(verdictsPath, log);
@@ -134,53 +214,35 @@ export const run = ({ verdictsPath, resultsDir, write, log = console.log }) => {
   let failed = false;
   let broken = false;
   for (const [name, workspace] of Object.entries(file.workspaces)) {
-    const resultPath = join(resultsDir, `${name}.json`);
-    if (!existsSync(resultPath)) {
-      log(`error: ${name}: no result file ${resultPath}`);
-      broken = true;
-      continue;
-    }
-    const report = readJson(resultPath, log);
-    const reportIssues =
-      report === null ? ["the result is not JSON"] : reportProblems(report, file.checks);
-    if (reportIssues.length > 0) {
-      for (const problem of reportIssues) {
-        log(`error: ${name}: ${problem}`);
+    // A finding of the default run has its verdict there, so the internal run
+    // judges only the findings that the default run does not report.
+    let judged = new Set();
+    for (const mode of RUNS) {
+      const resultPath = join(resultsDir, `${name}${mode.suffix}.json`);
+      // The default run is always judged. The internal run is judged when the
+      // verdict file or the run has it.
+      if (mode.optional && workspace[mode.key] === undefined && !existsSync(resultPath)) {
+        continue;
       }
-      broken = true;
-      continue;
-    }
-    const found = judgedFindings(report, file.checks);
-    const verdicts = workspace.findings ?? {};
-    const { added, removed, knownFalse } = compare(found, verdicts);
-    for (const finding of added) {
-      log(
-        `error: ${name}: new finding ${finding.id} ${finding.check}/${finding.rule} at ${place(finding)}: ${finding.message}`,
-      );
-    }
-    for (const finding of removed) {
-      log(
-        `note: ${name}: ${finding.id} ${finding.check}/${finding.rule} at ${place(finding)} is gone`,
-      );
-    }
-    for (const finding of knownFalse) {
-      log(`note: ${name}: known false positive ${finding.id} at ${place(finding)}`);
-    }
-    log(
-      `${name}: ${found.size} findings, ${added.length} new, ${removed.length} gone, ${knownFalse.length} known false positives`,
-    );
-    if (write) {
-      for (const finding of added) {
-        verdicts[finding.id] = baselineEntry(finding);
+      const state = judgeRun({
+        name: `${name}${mode.label}`,
+        resultPath,
+        verdicts: workspace[mode.key] ?? {},
+        checks: file.checks,
+        skip: judged,
+        write,
+        log,
+      });
+      if (state.broken) {
+        broken = true;
+        continue;
       }
-      for (const finding of removed) {
-        delete verdicts[finding.id];
+      judged = new Set([...judged, ...state.ids]);
+      if (write) {
+        workspace[mode.key] = state.verdicts;
+      } else if (state.added > 0) {
+        failed = true;
       }
-      workspace.findings = Object.fromEntries(
-        Object.entries(verdicts).toSorted(([a], [b]) => a.localeCompare(b)),
-      );
-    } else if (added.length > 0) {
-      failed = true;
     }
   }
   if (broken) {
