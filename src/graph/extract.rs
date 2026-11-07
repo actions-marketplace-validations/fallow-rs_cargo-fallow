@@ -212,6 +212,9 @@ pub struct RawUse {
     /// The `cfg` conditions on the `use` item and on each enclosing node of
     /// the file.
     pub cfg: Vec<String>,
+    /// True for `#[macro_use] extern crate`, which brings the macros of the
+    /// crate into scope by one name.
+    pub macro_use: bool,
 }
 
 /// The way that code names something.
@@ -241,6 +244,10 @@ pub enum RefKind {
     Macro(String),
     /// A name in tokens that can be a field or a method.
     Member(String),
+    /// A one-name attribute on an item, for example `#[name]`, that is not an
+    /// attribute of the compiler. An import can bring an attribute macro with
+    /// that name into scope. The name can also be a derive helper.
+    Attribute(String),
 }
 
 /// Where a reference is.
@@ -278,6 +285,21 @@ fn is_item_position(call: &SyntaxNode) -> bool {
     })
 }
 
+/// True when the attribute of `path` is an outer attribute of an item. Only
+/// such an attribute can be an attribute macro.
+fn on_item(path: &ast::Path) -> bool {
+    path.syntax()
+        .ancestors()
+        .find_map(ast::Attr::cast)
+        .filter(|attr| attr.excl_token().is_none())
+        .and_then(|attr| attr.syntax().parent())
+        .is_some_and(|owner| {
+            ast::Item::can_cast(owner.kind())
+                || ast::AssocItem::can_cast(owner.kind())
+                || ast::ExternItem::can_cast(owner.kind())
+        })
+}
+
 /// One reference.
 #[derive(Debug, Clone)]
 pub struct RawRef {
@@ -306,6 +328,8 @@ pub struct RawRef {
     /// True for the path of an attribute, for example `#[krate::name]`, and
     /// of a macro call in the place of an item, for example `krate::name!(..);`
     /// in a module. Such a macro writes items that the graph does not see.
+    /// A one-name call in the place of an item, for example `name!(..);`,
+    /// marks its [`RefKind::Macro`] reference.
     pub invocation: bool,
 }
 
@@ -1091,6 +1115,7 @@ impl<'a> Walker<'a> {
                 item: item_index,
                 line: self.line_at(self.cursor),
                 cfg: self.conditions(),
+                macro_use: false,
             });
         }
     }
@@ -1127,6 +1152,7 @@ impl<'a> Walker<'a> {
             item: None,
             line: self.line_at(self.cursor),
             cfg: self.conditions(),
+            macro_use: item.attrs().any(|attr| loads_macros(&attr_body(&attr))),
         });
     }
 
@@ -1180,11 +1206,22 @@ impl<'a> Walker<'a> {
 
     /// The path of an attribute, for example `#[tokio::main]`, is a reference
     /// when it has a crate prefix. A single name needs an import, which is a
-    /// reference already. The attributes of the compiler and its tools are not.
+    /// reference already, so a single name on an item is only an
+    /// [`RefKind::Attribute`]. The attributes of the compiler and its tools
+    /// are not references.
     fn attribute_path(&mut self, path: &ast::Path) {
-        let (segments, global) = path_segments(path);
-        if segments.len() > 1 && !is_builtin_attribute(&segments.join("::")) {
+        let (mut segments, global) = path_segments(path);
+        if is_builtin_attribute(&segments.join("::")) {
+            return;
+        }
+        if segments.len() > 1 {
             self.add_ref(RefKind::Path { segments, global }, Origin::Attr);
+            self.mark_invocation();
+        } else if !global
+            && on_item(path)
+            && let Some(name) = segments.pop()
+        {
+            self.add_ref(RefKind::Attribute(name), Origin::Attr);
             self.mark_invocation();
         }
     }
@@ -1292,32 +1329,44 @@ impl<'a> Walker<'a> {
         }
     }
 
+    /// Adds the references of the path of a macro call. Returns true when the
+    /// macro writes its input into its output, see [`OUTPUT_MACROS`].
+    fn macro_name_refs(&mut self, node: &SyntaxNode, call: &ast::MacroCall) -> bool {
+        let Some(path) = call.path() else {
+            return false;
+        };
+        let Some(name) = path.segment().and_then(|segment| segment.name_ref()) else {
+            return false;
+        };
+        let item_position = is_item_position(node);
+        let (segments, global) = path_segments(&path);
+        let single = segments.len() == 1 && !global;
+        if segments.len() > 1 {
+            self.add_ref(RefKind::Path { segments, global }, Origin::Macro);
+            if item_position {
+                self.mark_invocation();
+            }
+        }
+        self.add_ref(RefKind::Macro(name.text().to_string()), Origin::Macro);
+        if single && item_position {
+            self.mark_invocation();
+        }
+        if name.text() == "include"
+            && let Some(file) = call.token_tree().as_ref().and_then(single_string)
+            && let Some(site) = self.facts.refs.pop()
+        {
+            self.facts
+                .code_includes
+                .push(CodeInclude { path: file, site });
+        }
+        OUTPUT_MACROS.contains(&name.text())
+    }
+
     fn macro_call(&mut self, node: &SyntaxNode) {
         let Some(call) = ast::MacroCall::cast(node.clone()) else {
             return;
         };
-        let mut quoted = false;
-        if let Some(path) = call.path()
-            && let Some(name) = path.segment().and_then(|segment| segment.name_ref())
-        {
-            quoted = OUTPUT_MACROS.contains(&name.text());
-            let (segments, global) = path_segments(&path);
-            if segments.len() > 1 {
-                self.add_ref(RefKind::Path { segments, global }, Origin::Macro);
-                if is_item_position(node) {
-                    self.mark_invocation();
-                }
-            }
-            self.add_ref(RefKind::Macro(name.text().to_string()), Origin::Macro);
-            if name.text() == "include"
-                && let Some(file) = call.token_tree().as_ref().and_then(single_string)
-                && let Some(site) = self.facts.refs.pop()
-            {
-                self.facts
-                    .code_includes
-                    .push(CodeInclude { path: file, site });
-            }
-        }
+        let quoted = self.macro_name_refs(node, &call);
         if let Some(tree) = call.token_tree() {
             let origin = if writes_pub(tree.syntax()) {
                 Origin::PublicMacro
@@ -1563,9 +1612,17 @@ fn inner_allows_dead(node: &SyntaxNode) -> bool {
         .any(|attr| allows_dead(&attr_body(&attr)))
 }
 
+/// True when the body of an attribute on `extern crate` can be `macro_use`.
+/// A `cfg_attr` counts, because its condition can hold.
+fn loads_macros(body: &str) -> bool {
+    body == "macro_use"
+        || body.starts_with("macro_use(")
+        || (body.starts_with("cfg_attr(") && body.contains("macro_use"))
+}
+
 /// True for an attribute that the compiler or a tool defines, not a macro.
 fn is_builtin_attribute(path: &str) -> bool {
-    const BUILTIN: [&str; 39] = [
+    const BUILTIN: [&str; 45] = [
         "cfg",
         "default",
         "cfg_attr",
@@ -1605,6 +1662,12 @@ fn is_builtin_attribute(path: &str) -> bool {
         "global_allocator",
         "panic_handler",
         "diagnostic",
+        "no_implicit_prelude",
+        "naked",
+        "collapse_debuginfo",
+        "instruction_set",
+        "debugger_visualizer",
+        "no_link",
     ];
     let first = path.split("::").next().unwrap_or(path);
     BUILTIN.contains(&first) || matches!(first, "rustfmt" | "clippy" | "rustdoc")
