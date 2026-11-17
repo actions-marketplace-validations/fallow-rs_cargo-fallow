@@ -80,7 +80,9 @@ table has its default severity and gate.
 A finding that counts for a gate has the default severity `error`: the
 `error` rules of `deps`, and each rule of `files`, `visibility`,
 `boundaries`, `size`, `complexity`, `dupes`, and the surviving mutants of
-`mutants`. The rules table cannot change `surviving-mutant`. A finding that
+`mutants`. The finding counts for the gate of its own check, for example
+`duplication-findings` of `dupes`. `error-severity-findings` is the gate of
+`deps` only. The rules table cannot change `surviving-mutant`. A finding that
 counts for no gate is a warning, for example `unused-optional-dependency` or
 `stale-suppression`. `cargo fallow explain <rule>` shows the default of each
 rule. A gate fails the run only with its flag, for example
@@ -187,9 +189,12 @@ cargo fallow init --ci github > .github/workflows/cargo-fallow.yml
 calls.
 
 - The command runs the static checks and prints the tables of
-  `[workspace.metadata.fallow]`. Each limit is set to the current maximum of
-  the workspace: `max-cyclomatic` and `max-cognitive` of `complexity`, and
-  `threshold` of `dupes`. A limit is never lower than its default.
+  `[workspace.metadata.fallow]` that `--write` gives. The tables are those of
+  the root `Cargo.toml` after the edit, in the order of the file: the keys
+  that the file has, and the keys that the command adds. Each limit is set to
+  the current maximum of the workspace: `max-cyclomatic` and
+  `max-cognitive` of `complexity`, and `threshold` of `dupes`. A limit is
+  never lower than its default.
   `threshold = 0.0` means that there is no threshold gate.
 - `init` does not set `max-file-lines` of `size`. A large file fails only
   when it grows, so the default limit passes on the first run. A larger
@@ -213,9 +218,12 @@ calls.
   cargo-fallow action. Before you use the workflow, pin each action to a
   commit.
 - With `--format json`, the output has `kind`, `version`, `tables`,
-  `baseline`, `baseline_findings` and `written`. `baseline_findings` is the
-  number of findings that the run saved, or `null` when the run wrote no
-  baseline.
+  `baseline`, `baseline_findings` and `written`. `tables` is the TOML text of
+  the tables after `--write`, also in a run without `--write`.
+  `baseline_findings` is the number of entries in the baseline file that the
+  run wrote, or `null` when the run wrote no baseline. A clone group of
+  `dupes` has one entry for all its copies, so the number can be lower than
+  the number of findings of `check`.
 
 ## Suppressions
 
