@@ -74,7 +74,9 @@ cargo deny check
 ```
 
 The Quality gates section in `CONTRIBUTING.md` lists every gate.
-`hk run pre-commit --all` and `hk run pre-push --all` run the hook gates.
+`hk run pre-commit --all` and `hk run pre-push --all < /dev/null` run the
+hook gates. The pre-push hook reads git ref lines from stdin. Without the
+redirect, it waits with no output.
 
 ## Write for the reader
 
